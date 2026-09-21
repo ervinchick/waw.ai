@@ -7,7 +7,8 @@
 
   const STORAGE_KEY = "waw_web_state_v1";
 
-  const API_ENDPOINT = "https://forwaw-ai.ervin-mandarin.workers.dev";
+  const API_ENDPOINT =
+    "https://forwaw-ai.ervin-mandarin.workers.dev/chat";
 
   /* =========================================================
      STORAGE
@@ -66,15 +67,6 @@
   let roleplayOn = state.settings.roleplayDefault;
   let isGenerating = false;
 
-  /*
-    Временные варианты ответов.
-    Формат:
-    {
-      messageId,
-      variants: [messageObject, messageObject],
-      current: 0
-    }
-  */
   const responseVariants = new Map();
 
   function save() {
@@ -669,9 +661,6 @@
     return actions;
   }
 
-  /*
-    body -> message wrapper
-  */
   function wrapFromBody(body) {
     return body.closest(".msg");
   }
@@ -771,10 +760,6 @@
         "copy-flash"
       );
 
-      /*
-        forcing reflow allows repeated copies
-        to retrigger the animation
-      */
       void body.offsetWidth;
 
       body.classList.add(
@@ -903,11 +888,6 @@
 
       highlightCode(textEl);
 
-      /*
-        Сохраняем варианты отдельно от основного
-        массива чата, чтобы не плодить сообщения
-        при каждом нажатии "переписать".
-      */
       data.current =
         data.variants.length - 1;
 
@@ -1080,12 +1060,6 @@
 
         const start =
           performance.now();
-
-        /*
-          Instead of parsing Markdown on every
-          animation frame, update approximately
-          30 times/sec.
-        */
 
         let lastRender = 0;
 
@@ -1394,10 +1368,6 @@
   }
 
   async function getReply(chat) {
-    if (!API_ENDPOINT) {
-      return demoReply(chat);
-    }
-
     const history =
       chat.messages
         .filter((m) => m.text)
@@ -1407,7 +1377,7 @@
               ? "assistant"
               : "user",
 
-          content: m.text,
+          text: m.text,
         }));
 
     const res =
@@ -1417,17 +1387,17 @@
           method: "POST",
 
           headers: {
-            "content-type":
+            "Content-Type":
               "application/json",
           },
 
           body: JSON.stringify({
-            messages: history,
+            history: history,
 
             personalInstruction:
               state.settings
                 .personalInstruction ||
-              null,
+              "",
 
             reasoning: reasoningOn,
             roleplay: roleplayOn,
@@ -1435,25 +1405,25 @@
         }
       );
 
-    if (!res.ok) {
-      const detail =
-        await res
-          .text()
-          .catch(() => "");
+    let data = null;
 
+    try {
+      data = await res.json();
+    } catch (e) {
       throw new Error(
-        `API вернул ${res.status}: ${detail.slice(
-          0,
-          200
-        )}`
+        `Worker вернул не JSON (HTTP ${res.status})`
       );
     }
 
-    const data =
-      await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(
+        data.error ||
+          `Worker вернул HTTP ${res.status}`
+      );
+    }
 
     return parseReasoning(
-      data.text ??
+      data.answer ||
         "пустой ответ"
     );
   }
@@ -1485,82 +1455,6 @@
       answer: raw.trim(),
       reasoning: undefined,
     };
-  }
-
-  function demoReply(chat) {
-    const lastUser =
-      [...chat.messages]
-        .reverse()
-        .find(
-          (m) =>
-            m.role === "user"
-        );
-
-    const userText =
-      lastUser
-        ? lastUser.text
-        : "";
-
-    const delay =
-      500 +
-      Math.random() * 700;
-
-    const openers =
-      roleplayOn
-        ? [
-            "хм, дай подумать вместе с тобой —",
-            "о, интересный вопрос!",
-            "ладно, слушай сюда:",
-          ]
-        : ["", "", ""];
-
-    const opener =
-      openers[
-        Math.floor(
-          Math.random() *
-            openers.length
-        )
-      ];
-
-    const answer = `это **демо-режим** WAW прямо в браузере. скоро подключим настоящий API, и я буду отвечать как живой. ${
-      opener
-        ? opener + " "
-        : ""
-    }пока могу только отразить то, что ты написал: «${truncate(
-      userText,
-      160
-    )}»
-
-\`\`\`
-подключение появится позже
-\`\`\``;
-
-    let reasoning;
-
-    if (reasoningOn) {
-      reasoning =
-        "пока нет подключённого API — формирую заглушку на основе последнего сообщения";
-    }
-
-    return new Promise(
-      (resolve) => {
-        setTimeout(
-          () =>
-            resolve({
-              answer,
-              reasoning,
-            }),
-          delay
-        );
-      }
-    );
-  }
-
-  function truncate(str, n) {
-    return str.length > n
-      ? str.slice(0, n).trim() +
-          "…"
-      : str;
   }
 
   /* =========================================================
@@ -1868,33 +1762,31 @@
   }
 
   function animateThemeChange(
-  sourceElement,
-  apply
-) {
-  const rect =
-    sourceElement?.getBoundingClientRect();
+    sourceElement,
+    apply
+  ) {
+    const rect =
+      sourceElement?.getBoundingClientRect();
 
-  // Сначала применяем НОВУЮ тему
-  apply();
+    apply();
 
-  if (!rect) return;
+    if (!rect) return;
 
-  // Теперь получаем цвет уже НОВОЙ темы
-  const newBg =
-    getComputedStyle(
-      document.body
-    ).backgroundColor;
+    const newBg =
+      getComputedStyle(
+        document.body
+      ).backgroundColor;
 
-  createThemeRipple(
-    rect.left +
-      rect.width / 2,
+    createThemeRipple(
+      rect.left +
+        rect.width / 2,
 
-    rect.top +
-      rect.height / 2,
+      rect.top +
+        rect.height / 2,
 
-    newBg
-  );
-}
+      newBg
+    );
+  }
 
   /* =========================================================
      THEME CHANGE
@@ -1959,12 +1851,6 @@
         return;
       }
 
-      /*
-        Небольшая волна от выбранного
-        прямоугольника. Сам selector
-        при этом плавно перестраивается.
-      */
-
       animateAccentChange(
         btn,
         () => {
@@ -1980,55 +1866,53 @@
     }
   );
 
-function animateAccentChange(
-  sourceElement,
-  apply
-) {
-  const rect =
-    sourceElement.getBoundingClientRect();
+  function animateAccentChange(
+    sourceElement,
+    apply
+  ) {
+    const rect =
+      sourceElement.getBoundingClientRect();
 
-  // Сначала применяем НОВЫЙ акцент
-  apply();
+    apply();
 
-  // Получаем уже НОВЫЙ цвет
-  const newAccent =
-    getComputedStyle(
-      document.documentElement
-    ).getPropertyValue(
-      "--accent"
+    const newAccent =
+      getComputedStyle(
+        document.documentElement
+      ).getPropertyValue(
+        "--accent"
+      );
+
+    const pulse =
+      document.createElement(
+        "div"
+      );
+
+    pulse.className =
+      "theme-ripple";
+
+    pulse.style.left =
+      `${rect.left +
+        rect.width / 2}px`;
+
+    pulse.style.top =
+      `${rect.top +
+        rect.height / 2}px`;
+
+    pulse.style.setProperty(
+      "--theme-ripple-color",
+      newAccent
     );
 
-  const pulse =
-    document.createElement(
-      "div"
+    document.body.appendChild(
+      pulse
     );
 
-  pulse.className =
-    "theme-ripple";
-
-  pulse.style.left =
-    `${rect.left +
-      rect.width / 2}px`;
-
-  pulse.style.top =
-    `${rect.top +
-      rect.height / 2}px`;
-
-  pulse.style.setProperty(
-    "--theme-ripple-color",
-    newAccent
-  );
-
-  document.body.appendChild(
-    pulse
-  );
-
-  pulse.addEventListener(
-    "animationend",
-    () => pulse.remove(),
-    { once: true }
-  );
-}
+    pulse.addEventListener(
+      "animationend",
+      () => pulse.remove(),
+      { once: true }
+    );
+  }
 
   /* =========================================================
      DEFAULT SWITCHES
