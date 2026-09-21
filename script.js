@@ -1868,36 +1868,33 @@
   }
 
   function animateThemeChange(
-    sourceElement,
-    apply
-  ) {
-    const rect =
-      sourceElement?.getBoundingClientRect();
+  sourceElement,
+  apply
+) {
+  const rect =
+    sourceElement?.getBoundingClientRect();
 
-    /*
-      Цвет берём заранее, потому что после
-      applyTheme переменные уже изменятся.
-    */
+  // Сначала применяем НОВУЮ тему
+  apply();
 
-    const oldBg =
-      getComputedStyle(
-        document.body
-      ).backgroundColor;
+  if (!rect) return;
 
-    apply();
+  // Теперь получаем цвет уже НОВОЙ темы
+  const newBg =
+    getComputedStyle(
+      document.body
+    ).backgroundColor;
 
-    if (!rect) return;
+  createThemeRipple(
+    rect.left +
+      rect.width / 2,
 
-    createThemeRipple(
-      rect.left +
-        rect.width / 2,
+    rect.top +
+      rect.height / 2,
 
-      rect.top +
-        rect.height / 2,
-
-      oldBg
-    );
-  }
+    newBg
+  );
+}
 
   /* =========================================================
      THEME CHANGE
@@ -1983,53 +1980,55 @@
     }
   );
 
-  function animateAccentChange(
-    sourceElement,
-    apply
-  ) {
-    const rect =
-      sourceElement.getBoundingClientRect();
+function animateAccentChange(
+  sourceElement,
+  apply
+) {
+  const rect =
+    sourceElement.getBoundingClientRect();
 
-    const oldAccent =
-      getComputedStyle(
-        document.documentElement
-      ).getPropertyValue(
-        "--accent"
-      );
+  // Сначала применяем НОВЫЙ акцент
+  apply();
 
-    const pulse =
-      document.createElement(
-        "div"
-      );
-
-    pulse.className =
-      "theme-ripple";
-
-    pulse.style.left =
-      `${rect.left +
-        rect.width / 2}px`;
-
-    pulse.style.top =
-      `${rect.top +
-        rect.height / 2}px`;
-
-    pulse.style.setProperty(
-      "--theme-ripple-color",
-      oldAccent
+  // Получаем уже НОВЫЙ цвет
+  const newAccent =
+    getComputedStyle(
+      document.documentElement
+    ).getPropertyValue(
+      "--accent"
     );
 
-    document.body.appendChild(
-      pulse
+  const pulse =
+    document.createElement(
+      "div"
     );
 
-    apply();
+  pulse.className =
+    "theme-ripple";
 
-    pulse.addEventListener(
-      "animationend",
-      () => pulse.remove(),
-      { once: true }
-    );
-  }
+  pulse.style.left =
+    `${rect.left +
+      rect.width / 2}px`;
+
+  pulse.style.top =
+    `${rect.top +
+      rect.height / 2}px`;
+
+  pulse.style.setProperty(
+    "--theme-ripple-color",
+    newAccent
+  );
+
+  document.body.appendChild(
+    pulse
+  );
+
+  pulse.addEventListener(
+    "animationend",
+    () => pulse.remove(),
+    { once: true }
+  );
+}
 
   /* =========================================================
      DEFAULT SWITCHES
