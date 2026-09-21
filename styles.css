@@ -34,18 +34,88 @@
 :root[data-accent="indigo"]{ --accent:#6E7BFF; --accent-soft:#C3C9FF; --accent-dim:#2A2E58; --glow-accent:0 4px 20px rgba(110,123,255,.35); }
 :root[data-accent="rose"]{ --accent:#E06691; --accent-soft:#F5C2D6; --accent-dim:#4A2A38; --glow-accent:0 4px 20px rgba(224,102,145,.35); }
 
-/* ---- СВЕТЛАЯ ТЕМА: реально белая, нейтральные серые панели ---- */
+/* ===========================================================
+   СВЕТЛАЯ ТЕМА — белая и красивая
+   =========================================================== */
 body.light{
-  --bg:#FFFFFF;
+  --bg:#FAFAFC;
   --surface:#FFFFFF;
-  --surface-2:#F5F5F7;
-  --surface-3:#EBEBEF;
-  --border:#E0E0E6;
+  --surface-2:#F2F2F5;
+  --surface-3:#E8E8EE;
+  --border:#E2E2E9;
   --text:#1A1A1F;
   --text-muted:#5A5A66;
-  --text-faint:#9494A0;
+  --text-faint:#8A8A96;
   --accent-ink:#FFFFFF;
-  --shadow-panel: 0 20px 50px rgba(0, 0, 0, 0.08);
+  --shadow-panel: 0 12px 40px rgba(0, 0, 0, 0.07);
+  --glow-accent: 0 4px 18px rgba(0, 0, 0, 0.10);
+}
+
+/* В светлой теме — мягкие градиенты пузырей и более мягкие тени */
+body.light .msg.user .msg-body{
+  background:linear-gradient(145deg, var(--accent), color-mix(in srgb, var(--accent) 80%, #fff));
+  box-shadow:0 4px 16px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+body.light .msg-body:hover{
+  box-shadow:0 6px 20px rgba(0, 0, 0, 0.06);
+}
+body.light .new-chat-btn:hover,
+body.light .empty-mark{
+  box-shadow:0 4px 18px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+body.light .send-btn:not(:disabled):hover{
+  box-shadow:0 4px 18px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+body.light .settings-section{
+  background:#FFFFFF;
+  box-shadow:0 1px 3px rgba(0, 0, 0, 0.04);
+}
+body.light .composer{
+  background:#FFFFFF;
+  box-shadow:0 8px 30px rgba(0, 0, 0, 0.06);
+}
+body.light .composer:focus-within{
+  box-shadow:0 8px 30px rgba(0, 0, 0, 0.08), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+body.light .msg-text pre{
+  background:#F5F5F7;
+  border-color:#E2E2E9;
+}
+body.light .msg-text pre code{
+  color:#1A1A1F;
+}
+body.light .msg-text code{
+  background:color-mix(in srgb, var(--accent) 10%, #fff);
+  border-color:color-mix(in srgb, var(--accent) 20%, transparent);
+}
+body.light .msg.user .msg-text code{
+  background:rgba(255,255,255,.18);
+  border-color:rgba(255,255,255,.30);
+}
+body.light .reasoning-block{
+  background:color-mix(in srgb, var(--accent) 8%, #fff);
+  border-left-color:var(--accent);
+  color:var(--text-muted);
+}
+body.light .switch{
+  background:#E2E2E9;
+  border-color:#D4D4DC;
+}
+body.light .switch-knob{
+  background:#B4B4BF;
+}
+body.light .switch[aria-checked="true"]{
+  background:color-mix(in srgb, var(--accent) 25%, #fff);
+}
+body.light .switch[aria-checked="true"] .switch-knob{
+  background:var(--accent);
+}
+body.light .segmented{
+  background:#F2F2F5;
+}
+body.light .segmented button.active{
+  background:var(--accent);
+  color:#fff;
 }
 
 *{ box-sizing:border-box; }
