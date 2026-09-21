@@ -854,8 +854,23 @@
     `;
 
     try {
+      // ВАЖНО: строим историю ТОЛЬКО до переписываемого ответа,
+      // чтобы последним ходом был user, а не model.
+      // Это обходит валидацию Gemini 3.6 Flash
+      // ("pre-filling model turns больше не поддерживается").
+      const historyUpToRetry = chat.messages
+        .slice(0, index)
+        .filter((m) => m.text)
+        .map((m) => ({
+          role:
+            m.role === "model"
+              ? "assistant"
+              : "user",
+          text: m.text,
+        }));
+
       const result =
-        await getReply(chat);
+        await getReply(historyUpToRetry);
 
       const variant = {
         id:
@@ -879,6 +894,13 @@
 
       const data =
         getVariantData(originalMessage);
+
+      // Обновляем сам объект сообщения в истории чата,
+      // чтобы сохранённый чат соответствовал показанному варианту.
+      Object.assign(originalMessage, {
+        text: variant.text,
+        reasoning: variant.reasoning,
+      });
 
       renderMarkdown(
         textEl,
@@ -1367,9 +1389,18 @@
     return parts.join("\n");
   }
 
-  async function getReply(chat) {
-    const history =
-      chat.messages
+  /**
+   * Отправляет запрос в воркер.
+   * @param {Array<{role:string,text:string}>|object} input
+   *   либо готовый массив history, либо объект чата.
+   */
+  async function getReply(input) {
+    let history;
+
+    if (Array.isArray(input)) {
+      history = input;
+    } else {
+      history = input.messages
         .filter((m) => m.text)
         .map((m) => ({
           role:
@@ -1379,6 +1410,18 @@
 
           text: m.text,
         }));
+    }
+
+    // Нормализуем хвост истории: последним ходом
+    // обязательно должен быть пользователь,
+    // иначе Gemini 3.6 Flash возвращает 400.
+    history = trimTrailingAssistantTurns(history);
+
+    if (history.length === 0) {
+      throw new Error(
+        "Нет истории для запроса"
+      );
+    }
 
     const res =
       await fetch(
@@ -1426,6 +1469,24 @@
       data.answer ||
         "пустой ответ"
     );
+  }
+
+  /**
+   * Убирает хвостовые ходы ассистента, чтобы
+   * последним сообщением в истории был user.
+   */
+  function trimTrailingAssistantTurns(history) {
+    const copy = history.slice();
+
+    while (
+      copy.length > 0 &&
+      copy[copy.length - 1].role ===
+        "assistant"
+    ) {
+      copy.pop();
+    }
+
+    return copy;
   }
 
   function parseReasoning(raw) {
