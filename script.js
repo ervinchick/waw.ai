@@ -177,7 +177,7 @@
   }
 
   /* =========================================================
-     RENDER: messages
+     RENDER: messages (Telegram-стиль: юзер справа, WAW слева)
      ========================================================= */
   function renderMessages() {
     const chat = getActiveChat();
@@ -198,10 +198,6 @@
     const wrap = document.createElement("div");
     wrap.className = "msg " + (m.role === "user" ? "user" : "model");
 
-    const avatar = document.createElement("div");
-    avatar.className = "bubble-avatar";
-    avatar.textContent = m.role === "user" ? "Т" : "W";
-
     const body = document.createElement("div");
     body.className = "msg-body";
 
@@ -209,7 +205,6 @@
     name.className = "msg-name";
     name.textContent =
       m.role === "user" ? state.settings.displayName || "Ты" : "WAW";
-
     body.appendChild(name);
 
     if (m.reasoning) {
@@ -224,8 +219,21 @@
     text.textContent = m.text;
     body.appendChild(text);
 
-    wrap.appendChild(avatar);
-    wrap.appendChild(body);
+    // Аватар: только у WAW слева; у пользователя — только пузырь справа
+    if (m.role !== "user") {
+      const avatar = document.createElement("div");
+      avatar.className = "bubble-avatar";
+      avatar.textContent = "W";
+      wrap.appendChild(avatar);
+      wrap.appendChild(body);
+    } else {
+      wrap.appendChild(body);
+      const avatar = document.createElement("div");
+      avatar.className = "bubble-avatar";
+      avatar.textContent = (state.settings.displayName || "Т").trim()[0]?.toUpperCase() || "Т";
+      wrap.appendChild(avatar);
+    }
+
     messagesEl.appendChild(wrap);
   }
 
@@ -527,8 +535,9 @@
      THEME / PROFILE APPLY
      ========================================================= */
   function applyTheme() {
+    // Акцентный цвет — на <html>, тема — класс light на <body>
     document.documentElement.setAttribute("data-accent", state.settings.accent);
-    document.documentElement.setAttribute("data-theme", state.settings.theme);
+    document.body.classList.toggle("light", state.settings.theme === "light");
   }
 
   function applyProfileToUI() {
