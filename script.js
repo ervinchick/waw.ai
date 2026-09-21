@@ -5,10 +5,10 @@
      КОНСТАНТЫ
      ========================================================= */
   const STORAGE_KEY = "waw_web_state_v1";
-  // OpenAI-совместимый endpoint. Можно заменить на свой прокси,
-  // главное — чтобы он принимал { model, messages } и ключ Bearer.
-  const API_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
-  const DEFAULT_MODEL = "openai/gpt-4o-mini";
+
+  // URL прокси (Cloudflare Worker). Пока пусто — работает демо-режим.
+  // Позже впишем сюда, например: https://waw-proxy.твой-ник.workers.dev/api/chat
+  const API_ENDPOINT = "";
 
   /* =========================================================
      STORAGE
@@ -18,7 +18,6 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        // миграция: подмешиваем новые поля настроек к старым сохранениям
         parsed.settings = Object.assign(defaultState().settings, parsed.settings || {});
         return parsed;
       }
@@ -48,8 +47,6 @@
         theme: "dark",
         reasoningDefault: false,
         roleplayDefault: false,
-        apiKey: "",
-        apiModel: DEFAULT_MODEL,
       },
     };
   }
@@ -57,7 +54,7 @@
   let state = loadState() || defaultState();
   let reasoningOn = state.settings.reasoningDefault;
   let roleplayOn = state.settings.roleplayDefault;
-  let isGenerating = false; // не даём отправлять, пока WAW печатает
+  let isGenerating = false;
 
   function save() {
     try {
@@ -112,18 +109,17 @@
   const themeSegmented = $("themeSegmented");
   const reasoningDefaultSwitch = $("reasoningDefaultSwitch");
   const roleplayDefaultSwitch = $("roleplayDefaultSwitch");
-  const apiKeyInput = $("apiKeyInput");
-  const toggleKeyVisibility = $("toggleKeyVisibility");
-  const apiModelInput = $("apiModelInput");
   const wipeDataBtn = $("wipeDataBtn");
 
   /* =========================================================
      MARKDOWN + ПОДСВЕТКА
      ========================================================= */
   function renderMarkdown(el, text, withCaret) {
+    const caret = withCaret ? '<span class="stream-caret"></span>' : "";
     if (window.marked && window.DOMPurify) {
-      const html = marked.parse(text, { breaks: true, gfm: true });
-      el.innerHTML = DOMPurify.sanitize(html) + (withCaret ? '<span class="stream-caret"></span>' : "");
+      const parse = marked.parse || marked;
+      const html = parse(text, { breaks: true, gfm: true });
+      el.innerHTML = DOMPurify.sanitize(html) + caret;
     } else {
       el.textContent = text + (withCaret ? "▌" : "");
     }
@@ -159,7 +155,7 @@
         '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>';
       del.addEventListener("click", (e) => {
         e.stopPropagation();
-        deleteChat(chat.id);
+        if (confirm(`Удалить «${chat.title}»?`)) deleteChat(chat.id);
       });
 
       item.appendChild(title);
@@ -225,10 +221,10 @@
     emptyStateEl.style.display = "none";
 
     chat.messages.forEach((m) => {
-      const { body, textEl } = buildMessageShell(m);
+      const { wrap, textEl } = buildMessageShell(m);
       renderMarkdown(textEl, m.text, false);
       highlightCode(textEl);
-      messagesEl.appendChild(body);
+      messagesEl.appendChild(wrap);
     });
     scrollThreadToBottom();
   }
@@ -267,20 +263,18 @@
   function streamText(textEl, fullText) {
     return new Promise((resolve) => {
       const len = fullText.length;
-      // длительность: длинные ответы печатаются быстрее, но не дольше ~4с
       const duration = Math.min(4000, Math.max(900, len * 16));
       const start = performance.now();
-      let raf = null;
 
       function tick(now) {
         const p = Math.min(1, (now - start) / duration);
-        const eased = 1 - Math.pow(1 - p, 2); // ease-out
+        const eased = 1 - Math.pow(1 - p, 2);
         const cut = Math.floor(len * eased);
         renderMarkdown(textEl, fullText.slice(0, cut), p < 1);
         threadEl.scrollTop = threadEl.scrollHeight;
 
         if (p < 1) {
-          raf = requestAnimationFrame(tick);
+          requestAnimationFrame(tick);
         } else {
           renderMarkdown(textEl, fullText, false);
           highlightCode(textEl);
@@ -289,7 +283,7 @@
         }
       }
 
-      raf = requestAnimationFrame(tick);
+      requestAnimationFrame(tick);
     });
   }
 
@@ -364,9 +358,8 @@
       chat.messages.push(msg);
       save();
 
-      // добавляем пустой пузырь и плавно печатаем в него сверху вниз
-      const { body, textEl } = buildMessageShell(msg);
-      messagesEl.appendChild(body);
+      const { wrap, textEl } = buildMessageShell(msg);
+      messagesEl.appendChild(wrap);
       scrollThreadToBottom();
 
       await streamText(textEl, answer);
@@ -375,13 +368,13 @@
       hideTyping();
       const msg = {
         role: "model",
-        text: "не удалось получить ответ. проверь API-ключ в настройках или попробуй позже",
+        text: "не удалось получить ответ. попробуй ещё раз чуть позже",
         createdAt: Date.now(),
       };
       chat.messages.push(msg);
       save();
-      const { body, textEl } = buildMessageShell(msg);
-      messagesEl.appendChild(body);
+      const { wrap, textEl } = buildMessageShell(msg);
+      messagesEl.appendChild(wrap);
       await streamText(textEl, msg.text);
     } finally {
       isGenerating = false;
@@ -391,10 +384,12 @@
   }
 
   /* =========================================================
-     REPLY: настоящий API по ключу ИЛИ демо-режим
+     REPLY: настоящий API (через прокси) ИЛИ демо-режим
      ========================================================= */
   function buildSystemPrompt() {
-    const parts = ["Ты — WAW, дружелюбный ИИ-ассистент. Отвечай на языке пользователя, используй Markdown: заголовки, списки, **жирный**, код в ```блоках``` где уместно."];
+    const parts = [
+      "Ты — WAW, дружелюбный ИИ-ассистент. Отвечай на языке пользователя, используй Markdown: заголовки, списки, **жирный**, код в ```блоках``` где уместно.",
+    ];
     if (state.settings.personalInstruction) {
       parts.push("Персональная инструкция пользователя: " + state.settings.personalInstruction);
     }
@@ -408,12 +403,10 @@
   }
 
   async function getReply(chat) {
-    const apiKey = state.settings.apiKey.trim();
+    // ---- демо-режим, пока не подключён прокси ----
+    if (!API_ENDPOINT) return demoReply(chat);
 
-    // ---- демо-режим без ключа ----
-    if (!apiKey) return demoReply(chat);
-
-    // ---- настоящий API ----
+    // ---- настоящий запрос через прокси ----
     const history = chat.messages
       .filter((m) => m.text)
       .map((m) => ({
@@ -423,13 +416,12 @@
 
     const res = await fetch(API_ENDPOINT, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${apiKey}`,
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        model: state.settings.apiModel.trim() || DEFAULT_MODEL,
-        messages: [{ role: "system", content: buildSystemPrompt() }, ...history],
+        messages: history,
+        personalInstruction: state.settings.personalInstruction || null,
+        reasoning: reasoningOn,
+        roleplay: roleplayOn,
       }),
     });
 
@@ -439,22 +431,20 @@
     }
 
     const data = await res.json();
-    const raw = data?.choices?.[0]?.message?.content ?? "пустой ответ";
-
-    return parseReasoning(raw);
+    return parseReasoning(data.text ?? "пустой ответ");
   }
 
-  /** Выделяет «Рассуждение: … Ответ: …», если модель его вернула. */
   function parseReasoning(raw) {
     if (!reasoningOn) return { answer: raw.trim(), reasoning: undefined };
-    const match = raw.match(/рассуждение\s*:\s*([\s\S]*?)\s*ответ\s*:\s*([\s\S]*)/i);
+    const match = raw.match(
+      /(?:рассуждение|reasoning|мысли|thinking)\s*:\s*([\s\S]*?)\s*(?:ответ|answer)\s*:\s*([\s\S]*)/i
+    );
     if (match) {
       return { reasoning: match[1].trim(), answer: match[2].trim() };
     }
     return { answer: raw.trim(), reasoning: undefined };
   }
 
-  /** Демо-ответ без бэкенда — для превью и пока нет ключа. */
   function demoReply(chat) {
     const lastUser = [...chat.messages].reverse().find((m) => m.role === "user");
     const userText = lastUser ? lastUser.text : "";
@@ -463,20 +453,19 @@
     const openers = roleplayOn
       ? ["хм, дай подумать вместе с тобой —", "о, интересный вопрос!", "ладно, слушай сюда:"]
       : ["", "", ""];
-
     const opener = openers[Math.floor(Math.random() * openers.length)];
 
-    const answer = `это **демо-режим** WAW прямо в браузере: добавь свой API-ключ в настройках, и ответы будут приходить от настоящей модели. ${
+    const answer = `это **демо-режим** WAW прямо в браузере. скоро подключим настоящий API, и я буду отвечать как живой. ${
       opener ? opener + " " : ""
     }пока могу только отразить то, что ты написал: «${truncate(userText, 160)}»
 
 \`\`\`
-настройки → подключение → API-ключ
+подключение появится позже
 \`\`\``;
 
     let reasoning;
     if (reasoningOn) {
-      reasoning = "нет подключённого API — формирую заглушку на основе последнего сообщения";
+      reasoning = "пока нет подключённого API — формирую заглушку на основе последнего сообщения";
     }
 
     return new Promise((resolve) => {
@@ -489,7 +478,7 @@
   }
 
   /* =========================================================
-     TOGGLES (reasoning / roleplay) — session state
+     TOGGLES (reasoning / roleplay)
      ========================================================= */
   function setToggle(btn, on) {
     btn.setAttribute("aria-pressed", on ? "true" : "false");
@@ -543,7 +532,6 @@
   closeSettingsBtn.addEventListener("click", closeSettings);
   settingsScrim.addEventListener("click", closeSettings);
 
-  // Escape закрывает панели
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeSettings();
@@ -555,10 +543,7 @@
     displayNameInput.value = state.settings.displayName;
     personalInstructionInput.value = state.settings.personalInstruction;
     piCount.textContent = String(state.settings.personalInstruction.length);
-    apiKeyInput.value = state.settings.apiKey;
-    apiModelInput.value = state.settings.apiModel;
 
-    // сегмент темы
     themeSegmented.querySelectorAll("button").forEach((b) => {
       b.classList.toggle("active", b.dataset.theme === state.settings.theme);
     });
@@ -585,23 +570,6 @@
     const val = personalInstructionInput.value.slice(0, 2000);
     state.settings.personalInstruction = val;
     piCount.textContent = String(val.length);
-    save();
-  });
-
-  apiKeyInput.addEventListener("input", () => {
-    state.settings.apiKey = apiKeyInput.value.trim();
-    save();
-  });
-
-  toggleKeyVisibility.addEventListener("click", () => {
-    const show = apiKeyInput.type === "password";
-    apiKeyInput.type = show ? "text" : "password";
-    toggleKeyVisibility.setAttribute("aria-label", show ? "Скрыть ключ" : "Показать ключ");
-    apiKeyInput.focus();
-  });
-
-  apiModelInput.addEventListener("input", () => {
-    state.settings.apiModel = apiModelInput.value.trim() || DEFAULT_MODEL;
     save();
   });
 
@@ -667,7 +635,11 @@
      CHAT CONTROLS
      ========================================================= */
   newChatBtn.addEventListener("click", createChat);
-  deleteChatBtn.addEventListener("click", () => deleteChat(state.activeChatId));
+
+  deleteChatBtn.addEventListener("click", () => {
+    const chat = getActiveChat();
+    if (confirm(`Удалить «${chat.title}»?`)) deleteChat(state.activeChatId);
+  });
 
   messageInput.addEventListener("input", () => {
     autoResizeInput();
