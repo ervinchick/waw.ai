@@ -7,9 +7,7 @@
 
   const STORAGE_KEY = "waw_web_state_v1";
 
-  // URL прокси. Пусто = демо-режим.
   const API_ENDPOINT = "";
-
 
   /* =========================================================
      STORAGE
@@ -66,9 +64,18 @@
 
   let reasoningOn = state.settings.reasoningDefault;
   let roleplayOn = state.settings.roleplayDefault;
-
   let isGenerating = false;
 
+  /*
+    Временные варианты ответов.
+    Формат:
+    {
+      messageId,
+      variants: [messageObject, messageObject],
+      current: 0
+    }
+  */
+  const responseVariants = new Map();
 
   function save() {
     try {
@@ -81,7 +88,6 @@
     }
   }
 
-
   function getActiveChat() {
     return (
       state.chats.find(
@@ -89,7 +95,6 @@
       ) || state.chats[0]
     );
   }
-
 
   /* =========================================================
      DOM
@@ -102,15 +107,12 @@
   const emptyStateEl = $("emptyState");
   const threadEl = $("thread");
   const topbarTitleEl = $("topbarTitle");
-
   const messageInput = $("messageInput");
   const sendBtn = $("sendBtn");
-
   const brandDot = document.querySelector(".brand-dot");
 
   const sidebarEl = $("sidebar");
   const sidebarScrim = $("sidebarScrim");
-
   const openSidebarBtn = $("openSidebarBtn");
   const closeSidebarBtn = $("closeSidebarBtn");
 
@@ -129,9 +131,10 @@
   const userDisplayName = $("userDisplayName");
   const userAvatar = $("userAvatar");
 
-  const personalInstructionInput = $("personalInstructionInput");
-  const piCount = $("piCount");
+  const personalInstructionInput =
+    $("personalInstructionInput");
 
+  const piCount = $("piCount");
   const accentSwatches = $("accentSwatches");
   const themeSegmented = $("themeSegmented");
 
@@ -142,62 +145,6 @@
     $("roleplayDefaultSwitch");
 
   const wipeDataBtn = $("wipeDataBtn");
-
-
-  /* =========================================================
-     ICONS
-     ========================================================= */
-
-  const ICONS = {
-    copy: `
-      <svg viewBox="0 0 24 24">
-        <rect x="9" y="9" width="11" height="11" rx="2"/>
-        <path d="M6 15H5a2 2 0 01-2-2V5a2 2 0 012-2h8a2 2 0 012 2v1"/>
-      </svg>
-    `,
-
-    check: `
-      <svg viewBox="0 0 24 24">
-        <path d="M5 12l4 4L19 6"/>
-      </svg>
-    `,
-
-    like: `
-      <svg viewBox="0 0 24 24">
-        <path d="M7 10v11H4a2 2 0 01-2-2v-7a2 2 0 012-2h3z"/>
-        <path d="M7 21h10.5a2 2 0 001.9-1.4l2-7A2 2 0 0019.5 10H15l.7-4.1A3.2 3.2 0 0012.6 2L7 10"/>
-      </svg>
-    `,
-
-    dislike: `
-      <svg viewBox="0 0 24 24">
-        <path d="M17 14V3h3a2 2 0 012 2v7a2 2 0 01-2 2h-3z"/>
-        <path d="M17 3H6.5a2 2 0 00-1.9 1.4l-2 7A2 2 0 004.5 14H9l-.7 4.1A3.2 3.2 0 0011.4 22L17 14"/>
-      </svg>
-    `,
-
-    rewrite: `
-      <svg viewBox="0 0 24 24">
-        <path d="M3 12a9 9 0 0115.3-6.4L21 8"/>
-        <path d="M21 3v5h-5"/>
-        <path d="M21 12a9 9 0 01-15.3 6.4L3 16"/>
-        <path d="M3 21v-5h5"/>
-      </svg>
-    `,
-
-    left: `
-      <svg viewBox="0 0 24 24">
-        <path d="M15 18l-6-6 6-6"/>
-      </svg>
-    `,
-
-    right: `
-      <svg viewBox="0 0 24 24">
-        <path d="M9 18l6-6-6-6"/>
-      </svg>
-    `,
-  };
-
 
   /* =========================================================
      MARKDOWN
@@ -224,20 +171,20 @@
     }
   }
 
-
   function highlightCode(root) {
     if (!window.hljs) return;
 
     root.querySelectorAll("pre code").forEach((block) => {
       try {
         hljs.highlightElement(block);
-      } catch (_) {}
+      } catch (e) {
+        /* noop */
+      }
     });
   }
 
-
   /* =========================================================
-     SIDEBAR
+     CHAT LIST
      ========================================================= */
 
   function renderChatList() {
@@ -268,11 +215,8 @@
         "Удалить чат"
       );
 
-      del.innerHTML = `
-        <svg viewBox="0 0 24 24">
-          <path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/>
-        </svg>
-      `;
+      del.innerHTML =
+        '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>';
 
       del.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -289,28 +233,23 @@
       item.appendChild(title);
       item.appendChild(del);
 
-      item.addEventListener(
-        "click",
-        () => selectChat(chat.id)
+      item.addEventListener("click", () =>
+        selectChat(chat.id)
       );
 
-      item.addEventListener(
-        "keydown",
-        (e) => {
-          if (
-            e.key === "Enter" ||
-            e.key === " "
-          ) {
-            e.preventDefault();
-            selectChat(chat.id);
-          }
+      item.addEventListener("keydown", (e) => {
+        if (
+          e.key === "Enter" ||
+          e.key === " "
+        ) {
+          e.preventDefault();
+          selectChat(chat.id);
         }
-      );
+      });
 
       chatListEl.appendChild(item);
     });
   }
-
 
   function selectChat(chatId) {
     state.activeChatId = chatId;
@@ -320,7 +259,6 @@
 
     closeSidebarOnMobile();
   }
-
 
   function createChat() {
     const chat = makeChat(
@@ -338,15 +276,13 @@
     messageInput.focus();
   }
 
-
   function deleteChat(chatId) {
     const wasActive =
       chatId === state.activeChatId;
 
-    state.chats =
-      state.chats.filter(
-        (c) => c.id !== chatId
-      );
+    state.chats = state.chats.filter(
+      (c) => c.id !== chatId
+    );
 
     if (state.chats.length === 0) {
       const replacement = makeChat(1);
@@ -363,316 +299,451 @@
     renderAll();
   }
 
-
   /* =========================================================
-     MESSAGE VERSIONS
+     MESSAGE VARIANTS
      ========================================================= */
 
-  function normalizeMessage(message) {
-    if (!message.versions) {
-      message.versions = [
-        {
-          text: message.text,
-          reasoning: message.reasoning || null,
-        },
-      ];
-    }
-
-    if (
-      typeof message.versionIndex !== "number"
-    ) {
-      message.versionIndex =
-        message.versions.length - 1;
-    }
-
-    return message;
-  }
-
-
-  function getCurrentVersion(message) {
-    normalizeMessage(message);
-
-    return (
-      message.versions[
-        message.versionIndex
-      ] || message.versions[0]
+  function getVariantData(message) {
+    return responseVariants.get(
+      message.id
     );
   }
 
+  function ensureVariantData(message) {
+    if (!message.id) {
+      message.id =
+        `${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+    }
 
-  function updateMessageFromVersion(message) {
-    const version =
-      getCurrentVersion(message);
+    if (!responseVariants.has(message.id)) {
+      responseVariants.set(
+        message.id,
+        {
+          variants: [message],
+          current: 0,
+        }
+      );
+    }
 
-    message.text = version.text;
-    message.reasoning =
-      version.reasoning || undefined;
+    return responseVariants.get(
+      message.id
+    );
   }
 
+  function addVariant(message, variant) {
+    const data = ensureVariantData(message);
+
+    data.variants.push(variant);
+    data.current =
+      data.variants.length - 1;
+  }
+
+  /* =========================================================
+     MESSAGE SHELL
+     ========================================================= */
+
+  function buildMessageShell(m) {
+    const wrap = document.createElement("div");
+
+    wrap.className =
+      "msg " +
+      (m.role === "user"
+        ? "user"
+        : "model");
+
+    if (m.role === "model") {
+      wrap.dataset.messageId =
+        m.id || "";
+    }
+
+    const body =
+      document.createElement("div");
+
+    body.className = "msg-body";
+
+    if (m.reasoning) {
+      const reasoning =
+        document.createElement("div");
+
+      reasoning.className =
+        "reasoning-block";
+
+      reasoning.textContent =
+        m.reasoning;
+
+      body.appendChild(reasoning);
+    }
+
+    const textEl =
+      document.createElement("div");
+
+    textEl.className = "msg-text";
+
+    body.appendChild(textEl);
+
+    wrap.appendChild(body);
+
+    if (m.role === "model") {
+      const actions =
+        createMessageActions(m, body);
+
+      body.appendChild(actions);
+    }
+
+    return {
+      wrap,
+      body,
+      textEl,
+    };
+  }
 
   /* =========================================================
      MESSAGE ACTIONS
      ========================================================= */
 
-  function createActionButton(
-    label,
-    icon,
-    className = ""
-  ) {
-    const button =
-      document.createElement("button");
-
-    button.type = "button";
-
-    button.className =
-      "message-action " +
-      className;
-
-    button.setAttribute(
-      "aria-label",
-      label
-    );
-
-    button.title = label;
-
-    button.innerHTML = icon;
-
-    return button;
+  function createIcon(path) {
+    return `
+      <svg viewBox="0 0 24 24">
+        ${path}
+      </svg>
+    `;
   }
 
-
-  function buildMessageActions(
+  function createMessageActions(
     message,
-    wrap
+    body
   ) {
-    if (message.role !== "model") {
-      return null;
-    }
-
     const actions =
       document.createElement("div");
 
-    actions.className =
-      "message-actions";
+    actions.className = "msg-actions";
+
+    /* COPY */
 
     const copyBtn =
-      createActionButton(
-        "Скопировать",
-        ICONS.copy
-      );
+      document.createElement("button");
 
-    const likeBtn =
-      createActionButton(
-        "Нравится",
-        ICONS.like
-      );
+    copyBtn.className =
+      "msg-action";
 
-    const dislikeBtn =
-      createActionButton(
-        "Не нравится",
-        ICONS.dislike
-      );
+    copyBtn.title = "Скопировать";
+    copyBtn.setAttribute(
+      "aria-label",
+      "Скопировать"
+    );
 
-    const rewriteBtn =
-      createActionButton(
-        "Переписать ответ",
-        ICONS.rewrite
+    copyBtn.innerHTML =
+      createIcon(
+        '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>'
       );
 
     copyBtn.addEventListener(
       "click",
-      () => copyMessage(
-        message,
-        wrap,
-        copyBtn
-      )
+      async () => {
+        await copyMessage(
+          message,
+          body,
+          copyBtn
+        );
+      }
     );
+
+    /* LIKE */
+
+    const likeBtn =
+      document.createElement("button");
+
+    likeBtn.className =
+      "msg-action";
+
+    likeBtn.title = "Нравится";
+    likeBtn.setAttribute(
+      "aria-label",
+      "Нравится"
+    );
+
+    likeBtn.innerHTML =
+      createIcon(
+        '<path d="M7 10v10H4a2 2 0 01-2-2v-6a2 2 0 012-2h3z"/><path d="M7 20h9.5a2 2 0 001.9-1.4l2-7A2 2 0 0018.5 9H14l.7-3.2A2.3 2.3 0 0012.5 3L7 10"/>'
+      );
 
     likeBtn.addEventListener(
       "click",
       () => {
-        const wasActive =
-          likeBtn.classList.contains(
-            "active"
-          );
-
         likeBtn.classList.toggle(
-          "active",
-          !wasActive
+          "active-like"
         );
 
-        if (!wasActive) {
-          dislikeBtn.classList.remove(
-            "active"
-          );
-        }
+        dislikeBtn.classList.remove(
+          "active-dislike"
+        );
       }
     );
+
+    /* DISLIKE */
+
+    const dislikeBtn =
+      document.createElement("button");
+
+    dislikeBtn.className =
+      "msg-action";
+
+    dislikeBtn.title = "Не нравится";
+    dislikeBtn.setAttribute(
+      "aria-label",
+      "Не нравится"
+    );
+
+    dislikeBtn.innerHTML =
+      createIcon(
+        '<path d="M7 14V4H4a2 2 0 00-2 2v6a2 2 0 002 2h3z"/><path d="M7 4h9.5a2 2 0 011.9 1.4l2 7A2 2 0 0118.5 15H14l.7 3.2a2.3 2.3 0 01-2.2 2.8L7 14"/>'
+      );
 
     dislikeBtn.addEventListener(
       "click",
       () => {
-        const wasActive =
-          dislikeBtn.classList.contains(
-            "active"
-          );
-
         dislikeBtn.classList.toggle(
-          "active",
-          !wasActive
+          "active-dislike"
         );
 
-        if (!wasActive) {
-          likeBtn.classList.remove(
-            "active"
-          );
-        }
+        likeBtn.classList.remove(
+          "active-like"
+        );
       }
     );
 
-    rewriteBtn.addEventListener(
+    /* RETRY */
+
+    const retryBtn =
+      document.createElement("button");
+
+    retryBtn.className =
+      "msg-action retry";
+
+    retryBtn.title = "Переписать ответ";
+    retryBtn.setAttribute(
+      "aria-label",
+      "Переписать ответ"
+    );
+
+    retryBtn.innerHTML =
+      createIcon(
+        '<path d="M20 11a8.1 8.1 0 00-14.9-4L3 10"/><path d="M3 4v6h6"/><path d="M4 13a8.1 8.1 0 0014.9 4L21 14"/><path d="M21 20v-6h-6"/>'
+      );
+
+    retryBtn.addEventListener(
       "click",
-      () => rewriteMessage(
-        message,
-        wrap
-      )
+      () => retryMessage(message)
+    );
+
+    /* VERSION NAVIGATION */
+
+    const versions =
+      document.createElement("div");
+
+    versions.className =
+      "msg-versions";
+
+    const prevBtn =
+      document.createElement("button");
+
+    prevBtn.className =
+      "msg-version-arrow";
+
+    prevBtn.innerHTML = "‹";
+    prevBtn.setAttribute(
+      "aria-label",
+      "Предыдущий вариант"
+    );
+
+    const count =
+      document.createElement("span");
+
+    count.className =
+      "msg-version-count";
+
+    const nextBtn =
+      document.createElement("button");
+
+    nextBtn.className =
+      "msg-version-arrow";
+
+    nextBtn.innerHTML = "›";
+    nextBtn.setAttribute(
+      "aria-label",
+      "Следующий вариант"
+    );
+
+    versions.appendChild(prevBtn);
+    versions.appendChild(count);
+    versions.appendChild(nextBtn);
+
+    function updateVersionControls() {
+      const data =
+        getVariantData(message);
+
+      if (!data || data.variants.length <= 1) {
+        versions.style.display =
+          "none";
+        return;
+      }
+
+      versions.style.display =
+        "flex";
+
+      count.textContent =
+        `${data.current + 1}/${data.variants.length}`;
+
+      prevBtn.disabled =
+        data.current <= 0;
+
+      nextBtn.disabled =
+        data.current >=
+        data.variants.length - 1;
+    }
+
+    prevBtn.addEventListener(
+      "click",
+      () => {
+        const data =
+          getVariantData(message);
+
+        if (
+          !data ||
+          data.current <= 0
+        ) {
+          return;
+        }
+
+        data.current--;
+
+        renderVariantInPlace(
+          message,
+          body,
+          wrapFromBody(body)
+        );
+
+        updateVersionControls();
+      }
+    );
+
+    nextBtn.addEventListener(
+      "click",
+      () => {
+        const data =
+          getVariantData(message);
+
+        if (
+          !data ||
+          data.current >=
+            data.variants.length - 1
+        ) {
+          return;
+        }
+
+        data.current++;
+
+        renderVariantInPlace(
+          message,
+          body,
+          wrapFromBody(body)
+        );
+
+        updateVersionControls();
+      }
     );
 
     actions.appendChild(copyBtn);
     actions.appendChild(likeBtn);
     actions.appendChild(dislikeBtn);
-    actions.appendChild(rewriteBtn);
+    actions.appendChild(retryBtn);
+    actions.appendChild(versions);
 
-    normalizeMessage(message);
-
-    if (message.versions.length > 1) {
-      const versions =
-        buildVersionControls(
-          message,
-          wrap
-        );
-
-      actions.appendChild(versions);
-    }
+    setTimeout(
+      updateVersionControls,
+      0
+    );
 
     return actions;
   }
 
-
-  function buildVersionControls(
-    message,
-    wrap
-  ) {
-    const container =
-      document.createElement("div");
-
-    container.className =
-      "message-versions";
-
-    const left =
-      document.createElement("button");
-
-    left.type = "button";
-    left.className =
-      "version-arrow";
-
-    left.innerHTML = ICONS.left;
-
-    left.setAttribute(
-      "aria-label",
-      "Предыдущий ответ"
-    );
-
-    const counter =
-      document.createElement("span");
-
-    counter.className =
-      "version-counter";
-
-    const right =
-      document.createElement("button");
-
-    right.type = "button";
-    right.className =
-      "version-arrow";
-
-    right.innerHTML = ICONS.right;
-
-    right.setAttribute(
-      "aria-label",
-      "Следующий ответ"
-    );
-
-    function update() {
-      counter.textContent =
-        `${message.versionIndex + 1}/${message.versions.length}`;
-
-      left.disabled =
-        message.versionIndex <= 0;
-
-      right.disabled =
-        message.versionIndex >=
-        message.versions.length - 1;
-    }
-
-    left.addEventListener(
-      "click",
-      () => {
-        if (
-          message.versionIndex <= 0
-        ) {
-          return;
-        }
-
-        message.versionIndex--;
-
-        updateMessageFromVersion(
-          message
-        );
-
-        save();
-
-        rerenderSingleMessage(
-          message,
-          wrap
-        );
-      }
-    );
-
-    right.addEventListener(
-      "click",
-      () => {
-        if (
-          message.versionIndex >=
-          message.versions.length - 1
-        ) {
-          return;
-        }
-
-        message.versionIndex++;
-
-        updateMessageFromVersion(
-          message
-        );
-
-        save();
-
-        rerenderSingleMessage(
-          message,
-          wrap
-        );
-      }
-    );
-
-    container.appendChild(left);
-    container.appendChild(counter);
-    container.appendChild(right);
-
-    update();
-
-    return container;
+  /*
+    body -> message wrapper
+  */
+  function wrapFromBody(body) {
+    return body.closest(".msg");
   }
 
+  function renderVariantInPlace(
+    originalMessage,
+    body,
+    wrap
+  ) {
+    const data =
+      getVariantData(originalMessage);
+
+    if (
+      !data ||
+      !data.variants[data.current]
+    ) {
+      return;
+    }
+
+    const variant =
+      data.variants[data.current];
+
+    const textEl =
+      body.querySelector(".msg-text");
+
+    if (!textEl) return;
+
+    if (variant.reasoning) {
+      let reasoning =
+        body.querySelector(
+          ".reasoning-block"
+        );
+
+      if (!reasoning) {
+        reasoning =
+          document.createElement(
+            "div"
+          );
+
+        reasoning.className =
+          "reasoning-block";
+
+        body.insertBefore(
+          reasoning,
+          textEl
+        );
+      }
+
+      reasoning.textContent =
+        variant.reasoning;
+    } else {
+      const reasoning =
+        body.querySelector(
+          ".reasoning-block"
+        );
+
+      if (reasoning) {
+        reasoning.remove();
+      }
+    }
+
+    renderMarkdown(
+      textEl,
+      variant.text,
+      false
+    );
+
+    highlightCode(textEl);
+
+    wrap.dataset.messageId =
+      variant.id || "";
+  }
 
   /* =========================================================
      COPY
@@ -680,313 +751,255 @@
 
   async function copyMessage(
     message,
-    wrap,
+    body,
     button
   ) {
-    const text =
-      getCurrentVersion(message).text;
+    const data =
+      getVariantData(message);
+
+    const current =
+      data
+        ? data.variants[data.current]
+        : message;
 
     try {
       await navigator.clipboard.writeText(
-        text
-      );
-    } catch (_) {
-      const area =
-        document.createElement("textarea");
-
-      area.value = text;
-
-      area.style.position =
-        "fixed";
-
-      area.style.opacity = "0";
-
-      document.body.appendChild(area);
-
-      area.select();
-
-      try {
-        document.execCommand("copy");
-      } catch (_) {}
-
-      area.remove();
-    }
-
-    wrap.classList.remove("copied");
-
-    void wrap.offsetWidth;
-
-    wrap.classList.add("copied");
-
-    button.innerHTML = ICONS.check;
-    button.classList.add("active");
-
-    button.setAttribute(
-      "aria-label",
-      "Скопировано"
-    );
-
-    button.title = "Скопировано";
-
-    setTimeout(() => {
-      button.innerHTML = ICONS.copy;
-      button.classList.remove(
-        "active"
+        current.text
       );
 
-      button.setAttribute(
-        "aria-label",
-        "Скопировать"
+      body.classList.remove(
+        "copy-flash"
       );
 
-      button.title = "Скопировать";
-    }, 1200);
-  }
+      /*
+        forcing reflow allows repeated copies
+        to retrigger the animation
+      */
+      void body.offsetWidth;
 
-
-  /* =========================================================
-     RENDER SINGLE MESSAGE
-     ========================================================= */
-
-  function rerenderSingleMessage(
-    message,
-    wrap
-  ) {
-    const body =
-      wrap.querySelector(".msg-body");
-
-    if (!body) return;
-
-    const oldActions =
-      body.querySelector(
-        ".message-actions"
+      body.classList.add(
+        "copy-flash"
       );
 
-    if (oldActions) {
-      oldActions.remove();
-    }
-
-    const textEl =
-      body.querySelector(
-        ".msg-text"
-      );
-
-    if (!textEl) return;
-
-    const version =
-      getCurrentVersion(message);
-
-    const reasoningEl =
-      body.querySelector(
-        ".reasoning-block"
-      );
-
-    if (version.reasoning) {
-      if (reasoningEl) {
-        reasoningEl.textContent =
-          version.reasoning;
-      } else {
-        const reasoning =
-          document.createElement("div");
-
-        reasoning.className =
-          "reasoning-block";
-
-        reasoning.textContent =
-          version.reasoning;
-
-        body.insertBefore(
-          reasoning,
-          textEl
+      setTimeout(() => {
+        body.classList.remove(
+          "copy-flash"
         );
-      }
-    } else if (reasoningEl) {
-      reasoningEl.remove();
-    }
+      }, 850);
 
-    renderMarkdown(
-      textEl,
-      version.text,
-      false
-    );
+      const old =
+        button.innerHTML;
 
-    highlightCode(textEl);
+      button.innerHTML =
+        createIcon(
+          '<path d="M5 12l4 4L19 6"/>'
+        );
 
-    const actions =
-      buildMessageActions(
-        message,
-        wrap
+      setTimeout(() => {
+        button.innerHTML = old;
+      }, 1000);
+
+    } catch (err) {
+      console.warn(
+        "WAW: clipboard failed",
+        err
       );
-
-    if (actions) {
-      body.appendChild(actions);
     }
   }
 
-
   /* =========================================================
-     REWRITE
+     RETRY / REWRITE
      ========================================================= */
 
-  async function rewriteMessage(
-    message,
-    wrap
+  async function retryMessage(
+    originalMessage
   ) {
     if (isGenerating) return;
 
     const chat = getActiveChat();
 
-    const messageIndex =
-      chat.messages.indexOf(message);
+    const index =
+      chat.messages.findIndex(
+        (m) =>
+          m.id === originalMessage.id
+      );
 
-    if (messageIndex === -1) return;
+    if (index === -1) return;
+
+    const previousUser =
+      [...chat.messages]
+        .slice(0, index)
+        .reverse()
+        .find(
+          (m) => m.role === "user"
+        );
+
+    if (!previousUser) return;
 
     isGenerating = true;
     updateSendBtnState();
 
-    const actions =
-      wrap.querySelector(
-        ".message-actions"
+    const wrap =
+      messagesEl.querySelector(
+        `.msg[data-message-id="${originalMessage.id}"]`
       );
 
-    if (actions) {
-      actions.classList.add("visible");
-    }
-
-    const originalHTML =
-      wrap.querySelector(
-        ".msg-text"
-      )?.innerHTML || "";
+    const body =
+      wrap?.querySelector(
+        ".msg-body"
+      );
 
     const textEl =
-      wrap.querySelector(
+      wrap?.querySelector(
         ".msg-text"
       );
 
-    if (textEl) {
-      textEl.innerHTML = `
-        <div class="typing">
-          <span></span>
-          <span></span>
-          <span></span>
-        </div>
-      `;
+    if (!textEl) {
+      isGenerating = false;
+      updateSendBtnState();
+      return;
     }
+
+    textEl.innerHTML = `
+      <div class="typing">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    `;
 
     try {
       const result =
-        await getReplyForRewrite(
-          chat,
-          messageIndex
-        );
+        await getReply(chat);
 
-      normalizeMessage(message);
+      const variant = {
+        id:
+          `${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`,
 
-      message.versions.push({
+        role: "model",
         text: result.answer,
         reasoning:
-          result.reasoning || null,
-      });
+          result.reasoning ||
+          undefined,
 
-      message.versionIndex =
-        message.versions.length - 1;
+        createdAt: Date.now(),
+      };
 
-      updateMessageFromVersion(
-        message
+      addVariant(
+        originalMessage,
+        variant
+      );
+
+      const data =
+        getVariantData(originalMessage);
+
+      renderMarkdown(
+        textEl,
+        variant.text,
+        false
+      );
+
+      highlightCode(textEl);
+
+      /*
+        Сохраняем варианты отдельно от основного
+        массива чата, чтобы не плодить сообщения
+        при каждом нажатии "переписать".
+      */
+      data.current =
+        data.variants.length - 1;
+
+      updateAllVersionControls(
+        originalMessage
       );
 
       save();
 
-      rerenderSingleMessage(
-        message,
-        wrap
-      );
-
       scrollThreadToBottom();
+
     } catch (err) {
       console.error(
-        "WAW: rewrite failed",
+        "WAW: retry failed",
         err
       );
 
-      if (textEl) {
-        textEl.innerHTML =
-          originalHTML;
-      }
+      renderMarkdown(
+        textEl,
+        "не удалось переписать ответ. попробуй ещё раз",
+        false
+      );
+
     } finally {
       isGenerating = false;
-
       updateSendBtnState();
-
-      messageInput.focus();
     }
   }
 
-
-  async function getReplyForRewrite(
-    chat,
-    messageIndex
+  function updateAllVersionControls(
+    message
   ) {
-    if (!API_ENDPOINT) {
-      return demoReply(chat);
-    }
-
-    const history =
-      chat.messages
-        .slice(0, messageIndex)
-        .filter((m) => m.text)
-        .map((m) => ({
-          role:
-            m.role === "model"
-              ? "assistant"
-              : "user",
-
-          content:m.text,
-        }));
-
-    const res =
-      await fetch(
-        API_ENDPOINT,
-        {
-          method:"POST",
-
-          headers:{
-            "content-type":
-              "application/json",
-          },
-
-          body:JSON.stringify({
-            messages:history,
-
-            personalInstruction:
-              state.settings
-                .personalInstruction ||
-              null,
-
-            reasoning:reasoningOn,
-
-            roleplay:roleplayOn,
-
-            rewrite:true,
-          }),
-        }
+    const wrap =
+      messagesEl.querySelector(
+        `.msg[data-message-id="${message.id}"]`
       );
 
-    if (!res.ok) {
-      throw new Error(
-        `API вернул ${res.status}`
+    if (!wrap) return;
+
+    const versions =
+      wrap.querySelector(
+        ".msg-versions"
       );
-    }
+
+    if (!versions) return;
 
     const data =
-      await res.json();
+      getVariantData(message);
 
-    return parseReasoning(
-      data.text ??
-      "пустой ответ"
-    );
+    if (
+      !data ||
+      data.variants.length <= 1
+    ) {
+      versions.style.display =
+        "none";
+      return;
+    }
+
+    versions.style.display =
+      "flex";
+
+    const count =
+      versions.querySelector(
+        ".msg-version-count"
+      );
+
+    const prev =
+      versions.querySelector(
+        ".msg-version-arrow:first-child"
+      );
+
+    const next =
+      versions.querySelector(
+        ".msg-version-arrow:last-child"
+      );
+
+    if (count) {
+      count.textContent =
+        `${data.current + 1}/${data.variants.length}`;
+    }
+
+    if (prev) {
+      prev.disabled =
+        data.current <= 0;
+    }
+
+    if (next) {
+      next.disabled =
+        data.current >=
+        data.variants.length - 1;
+    }
   }
-
 
   /* =========================================================
      RENDER MESSAGES
@@ -1012,15 +1025,11 @@
       "none";
 
     chat.messages.forEach((m) => {
-      normalizeMessage(m);
-
-      updateMessageFromVersion(m);
-
       const {
         wrap,
-        textEl,
-        body
-      } = buildMessageShell(m);
+        textEl
+      } =
+        buildMessageShell(m);
 
       renderMarkdown(
         textEl,
@@ -1030,68 +1039,15 @@
 
       highlightCode(textEl);
 
-      const actions =
-        buildMessageActions(
-          m,
-          wrap
-        );
-
-      if (actions) {
-        body.appendChild(actions);
-      }
-
       messagesEl.appendChild(wrap);
+
+      if (m.role === "model") {
+        ensureVariantData(m);
+      }
     });
 
     scrollThreadToBottom();
   }
-
-
-  function buildMessageShell(m) {
-    const wrap =
-      document.createElement("div");
-
-    wrap.className =
-      "msg " +
-      (m.role === "user"
-        ? "user"
-        : "model");
-
-    const body =
-      document.createElement("div");
-
-    body.className =
-      "msg-body";
-
-    if (m.reasoning) {
-      const reasoning =
-        document.createElement("div");
-
-      reasoning.className =
-        "reasoning-block";
-
-      reasoning.textContent =
-        m.reasoning;
-
-      body.appendChild(reasoning);
-    }
-
-    const textEl =
-      document.createElement("div");
-
-    textEl.className =
-      "msg-text";
-
-    body.appendChild(textEl);
-    wrap.appendChild(body);
-
-    return {
-      wrap,
-      body,
-      textEl,
-    };
-  }
-
 
   function scrollThreadToBottom() {
     requestAnimationFrame(() => {
@@ -1100,86 +1056,104 @@
     });
   }
 
-
   /* =========================================================
-     STREAM
+     OPTIMIZED STREAMING
      ========================================================= */
 
   function streamText(
     textEl,
     fullText
   ) {
-    return new Promise((resolve) => {
-      const len =
-        fullText.length;
+    return new Promise(
+      (resolve) => {
+        const len =
+          fullText.length;
 
-      const duration =
-        Math.min(
-          4000,
-          Math.max(
-            900,
-            len * 16
-          )
-        );
-
-      const start =
-        performance.now();
-
-      function tick(now) {
-        const p =
+        const duration =
           Math.min(
-            1,
-            (now - start) /
-              duration
+            4000,
+            Math.max(
+              900,
+              len * 16
+            )
           );
 
-        const eased =
-          1 -
-          Math.pow(
-            1 - p,
-            2
-          );
+        const start =
+          performance.now();
 
-        const cut =
-          Math.floor(
-            len * eased
-          );
+        /*
+          Instead of parsing Markdown on every
+          animation frame, update approximately
+          30 times/sec.
+        */
 
-        renderMarkdown(
-          textEl,
-          fullText.slice(0, cut),
-          p < 1
-        );
+        let lastRender = 0;
 
-        threadEl.scrollTop =
-          threadEl.scrollHeight;
+        function tick(now) {
+          const elapsed =
+            now - start;
 
-        if (p < 1) {
-          requestAnimationFrame(
-            tick
-          );
-        } else {
-          renderMarkdown(
-            textEl,
-            fullText,
-            false
-          );
+          const p =
+            Math.min(
+              1,
+              elapsed / duration
+            );
 
-          highlightCode(textEl);
+          const eased =
+            1 -
+            Math.pow(
+              1 - p,
+              2
+            );
 
-          threadEl.scrollTop =
-            threadEl.scrollHeight;
+          const cut =
+            Math.floor(
+              len * eased
+            );
 
-          resolve();
+          if (
+            now - lastRender >= 32 ||
+            p >= 1
+          ) {
+            renderMarkdown(
+              textEl,
+              fullText.slice(
+                0,
+                cut
+              ),
+              p < 1
+            );
+
+            lastRender = now;
+
+            threadEl.scrollTop =
+              threadEl.scrollHeight;
+          }
+
+          if (p < 1) {
+            requestAnimationFrame(
+              tick
+            );
+          } else {
+            renderMarkdown(
+              textEl,
+              fullText,
+              false
+            );
+
+            highlightCode(textEl);
+
+            threadEl.scrollTop =
+              threadEl.scrollHeight;
+
+            resolve();
+          }
         }
+
+        requestAnimationFrame(tick);
       }
-
-      requestAnimationFrame(
-        tick
-      );
-    });
+    );
   }
-
 
   /* =========================================================
      TYPING
@@ -1199,8 +1173,7 @@
     wrap.className =
       "msg model";
 
-    wrap.id =
-      "typingRow";
+    wrap.id = "typingRow";
 
     wrap.innerHTML = `
       <div class="msg-body">
@@ -1217,7 +1190,6 @@
     scrollThreadToBottom();
   }
 
-
   function hideTyping() {
     brandDot.classList.remove(
       "thinking"
@@ -1226,14 +1198,11 @@
     const row =
       $("typingRow");
 
-    if (row) {
-      row.remove();
-    }
+    if (row) row.remove();
   }
 
-
   /* =========================================================
-     SENDING
+     SEND
      ========================================================= */
 
   function autoResizeInput() {
@@ -1247,7 +1216,6 @@
       ) + "px";
   }
 
-
   function updateSendBtnState() {
     sendBtn.disabled =
       messageInput.value.trim()
@@ -1255,17 +1223,12 @@
       isGenerating;
   }
 
-
   async function sendMessage() {
     const text =
       messageInput.value.trim();
 
-    if (
-      !text ||
-      isGenerating
-    ) {
+    if (!text || isGenerating)
       return;
-    }
 
     const chat =
       getActiveChat();
@@ -1276,17 +1239,15 @@
     ) {
       chat.title =
         text.slice(0, 32) +
-        (
-          text.length > 32
-            ? "…"
-            : ""
-        );
+        (text.length > 32
+          ? "…"
+          : "");
     }
 
     chat.messages.push({
-      role:"user",
+      role: "user",
       text,
-      createdAt:Date.now(),
+      createdAt: Date.now(),
     });
 
     save();
@@ -1312,25 +1273,18 @@
       hideTyping();
 
       const msg = {
-        role:"model",
-        text:answer,
+        id:
+          `${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`,
+
+        role: "model",
+        text: answer,
 
         reasoning:
-          reasoning ||
-          undefined,
+          reasoning || undefined,
 
-        createdAt:Date.now(),
-
-        versions:[
-          {
-            text:answer,
-            reasoning:
-              reasoning ||
-              null,
-          },
-        ],
-
-        versionIndex:0,
+        createdAt: Date.now(),
       };
 
       chat.messages.push(msg);
@@ -1339,11 +1293,13 @@
 
       const {
         wrap,
-        textEl,
-        body
-      } = buildMessageShell(msg);
+        textEl
+      } =
+        buildMessageShell(msg);
 
       messagesEl.appendChild(wrap);
+
+      ensureVariantData(msg);
 
       scrollThreadToBottom();
 
@@ -1352,17 +1308,6 @@
         answer
       );
 
-      const actions =
-        buildMessageActions(
-          msg,
-          wrap
-        );
-
-      if (actions) {
-        body.appendChild(actions);
-      }
-
-      scrollThreadToBottom();
     } catch (err) {
       console.error(
         "WAW: reply failed",
@@ -1372,23 +1317,17 @@
       hideTyping();
 
       const msg = {
-        role:"model",
+        id:
+          `${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`,
+
+        role: "model",
 
         text:
           "не удалось получить ответ. попробуй ещё раз чуть позже",
 
-        createdAt:Date.now(),
-
-        versions:[
-          {
-            text:
-              "не удалось получить ответ. попробуй ещё раз чуть позже",
-
-            reasoning:null,
-          },
-        ],
-
-        versionIndex:0,
+        createdAt: Date.now(),
       };
 
       chat.messages.push(msg);
@@ -1397,26 +1336,19 @@
 
       const {
         wrap,
-        textEl,
-        body
-      } = buildMessageShell(msg);
+        textEl
+      } =
+        buildMessageShell(msg);
 
       messagesEl.appendChild(wrap);
+
+      ensureVariantData(msg);
 
       await streamText(
         textEl,
         msg.text
       );
 
-      const actions =
-        buildMessageActions(
-          msg,
-          wrap
-        );
-
-      if (actions) {
-        body.appendChild(actions);
-      }
     } finally {
       isGenerating = false;
 
@@ -1425,7 +1357,6 @@
       messageInput.focus();
     }
   }
-
 
   /* =========================================================
      API
@@ -1437,11 +1368,13 @@
     ];
 
     if (
-      state.settings.personalInstruction
+      state.settings
+        .personalInstruction
     ) {
       parts.push(
         "Персональная инструкция пользователя: " +
-        state.settings.personalInstruction
+        state.settings
+          .personalInstruction
       );
     }
 
@@ -1460,7 +1393,6 @@
     return parts.join("\n");
   }
 
-
   async function getReply(chat) {
     if (!API_ENDPOINT) {
       return demoReply(chat);
@@ -1475,42 +1407,45 @@
               ? "assistant"
               : "user",
 
-          content:m.text,
+          content: m.text,
         }));
 
     const res =
       await fetch(
         API_ENDPOINT,
         {
-          method:"POST",
+          method: "POST",
 
-          headers:{
+          headers: {
             "content-type":
               "application/json",
           },
 
-          body:JSON.stringify({
-            messages:history,
+          body: JSON.stringify({
+            messages: history,
 
             personalInstruction:
               state.settings
                 .personalInstruction ||
               null,
 
-            reasoning:reasoningOn,
-
-            roleplay:roleplayOn,
+            reasoning: reasoningOn,
+            roleplay: roleplayOn,
           }),
         }
       );
 
     if (!res.ok) {
       const detail =
-        await res.text()
+        await res
+          .text()
           .catch(() => "");
 
       throw new Error(
-        `API вернул ${res.status}: ${detail.slice(0,200)}`
+        `API вернул ${res.status}: ${detail.slice(
+          0,
+          200
+        )}`
       );
     }
 
@@ -1519,16 +1454,15 @@
 
     return parseReasoning(
       data.text ??
-      "пустой ответ"
+        "пустой ответ"
     );
   }
-
 
   function parseReasoning(raw) {
     if (!reasoningOn) {
       return {
-        answer:raw.trim(),
-        reasoning:undefined,
+        answer: raw.trim(),
+        reasoning: undefined,
       };
     }
 
@@ -1548,11 +1482,10 @@
     }
 
     return {
-      answer:raw.trim(),
-      reasoning:undefined,
+      answer: raw.trim(),
+      reasoning: undefined,
     };
   }
-
 
   function demoReply(chat) {
     const lastUser =
@@ -1579,22 +1512,24 @@
             "о, интересный вопрос!",
             "ладно, слушай сюда:",
           ]
-        : ["","",""];
+        : ["", "", ""];
 
     const opener =
       openers[
         Math.floor(
           Math.random() *
-          openers.length
+            openers.length
         )
       ];
 
-    const answer =
-      `это **демо-режим** WAW прямо в браузере. скоро подключим настоящий API, и я буду отвечать как живой. ${
-        opener
-          ? opener + " "
-          : ""
-      }пока могу только отразить то, что ты написал: «${truncate(userText,160)}»
+    const answer = `это **демо-режим** WAW прямо в браузере. скоро подключим настоящий API, и я буду отвечать как живой. ${
+      opener
+        ? opener + " "
+        : ""
+    }пока могу только отразить то, что ты написал: «${truncate(
+      userText,
+      160
+    )}»
 
 \`\`\`
 подключение появится позже
@@ -1621,14 +1556,12 @@
     );
   }
 
-
   function truncate(str, n) {
     return str.length > n
-      ? str.slice(0,n).trim() +
-        "…"
+      ? str.slice(0, n).trim() +
+          "…"
       : str;
   }
-
 
   /* =========================================================
      TOGGLES
@@ -1644,7 +1577,6 @@
     );
   }
 
-
   reasoningToggle.addEventListener(
     "click",
     () => {
@@ -1658,7 +1590,6 @@
     }
   );
 
-
   roleplayToggle.addEventListener(
     "click",
     () => {
@@ -1671,7 +1602,6 @@
       );
     }
   );
-
 
   /* =========================================================
      SIDEBAR
@@ -1687,7 +1617,6 @@
     );
   }
 
-
   function closeSidebar() {
     sidebarEl.classList.remove(
       "open"
@@ -1698,7 +1627,6 @@
     );
   }
 
-
   function closeSidebarOnMobile() {
     if (
       window.innerWidth <= 840
@@ -1706,7 +1634,6 @@
       closeSidebar();
     }
   }
-
 
   openSidebarBtn.addEventListener(
     "click",
@@ -1722,7 +1649,6 @@
     "click",
     closeSidebar
   );
-
 
   /* =========================================================
      SETTINGS
@@ -1745,7 +1671,6 @@
     );
   }
 
-
   function closeSettings() {
     settingsPanel.classList.remove(
       "open"
@@ -1760,7 +1685,6 @@
       "open"
     );
   }
-
 
   settingsBtn.addEventListener(
     "click",
@@ -1777,7 +1701,6 @@
     closeSettings
   );
 
-
   document.addEventListener(
     "keydown",
     (e) => {
@@ -1788,13 +1711,17 @@
     }
   );
 
+  /* =========================================================
+     SETTINGS UI
+     ========================================================= */
 
   function populateSettingsForm() {
     displayNameInput.value =
       state.settings.displayName;
 
     personalInstructionInput.value =
-      state.settings.personalInstruction;
+      state.settings
+        .personalInstruction;
 
     piCount.textContent =
       String(
@@ -1804,7 +1731,9 @@
       );
 
     themeSegmented
-      .querySelectorAll("button")
+      .querySelectorAll(
+        "button"
+      )
       .forEach((b) => {
         b.classList.toggle(
           "active",
@@ -1813,8 +1742,13 @@
         );
       });
 
+    themeSegmented.dataset.active =
+      state.settings.theme;
+
     document
-      .querySelectorAll(".swatch")
+      .querySelectorAll(
+        ".swatch"
+      )
       .forEach((sw) => {
         sw.classList.toggle(
           "active",
@@ -1836,7 +1770,6 @@
     );
   }
 
-
   function setSwitch(
     el,
     on
@@ -1846,7 +1779,6 @@
       on ? "true" : "false"
     );
   }
-
 
   displayNameInput.addEventListener(
     "input",
@@ -1860,7 +1792,6 @@
       applyProfileToUI();
     }
   );
-
 
   personalInstructionInput.addEventListener(
     "input",
@@ -1881,75 +1812,96 @@
     }
   );
 
-
   /* =========================================================
-     THEME TRANSITION
+     THEME RIPPLE
      ========================================================= */
 
-  function getTransitionPoint(
-    element
-  ) {
-    if (!element) {
-      return {
-        x:"50%",
-        y:"50%",
-      };
+  function getRippleColor(theme) {
+    if (theme === "light") {
+      return getComputedStyle(
+        document.documentElement
+      ).getPropertyValue(
+        "--surface"
+      );
     }
 
-    const rect =
-      element.getBoundingClientRect();
-
-    return {
-      x:
-        ((rect.left +
-          rect.width / 2) /
-          window.innerWidth) *
-        100 +
-        "%",
-
-      y:
-        ((rect.top +
-          rect.height / 2) /
-          window.innerHeight) *
-        100 +
-        "%",
-    };
+    return getComputedStyle(
+      document.documentElement
+    ).getPropertyValue(
+      "--bg"
+    );
   }
 
-
-  function applyThemeWithTransition(
-    change,
-    sourceElement
+  function createThemeRipple(
+    x,
+    y,
+    color
   ) {
-    const point =
-      getTransitionPoint(
-        sourceElement
+    const ripple =
+      document.createElement(
+        "div"
       );
 
-    document.documentElement.style.setProperty(
-      "--transition-x",
-      point.x
+    ripple.className =
+      "theme-ripple";
+
+    ripple.style.left =
+      `${x}px`;
+
+    ripple.style.top =
+      `${y}px`;
+
+    ripple.style.setProperty(
+      "--theme-ripple-color",
+      color
     );
 
-    document.documentElement.style.setProperty(
-      "--transition-y",
-      point.y
+    document.body.appendChild(
+      ripple
     );
 
-    if (
-      !document.startViewTransition
-    ) {
-      change();
-      return;
-    }
-
-    document.startViewTransition(
-      () => {
-        change();
-      }
+    ripple.addEventListener(
+      "animationend",
+      () => ripple.remove(),
+      { once: true }
     );
   }
 
+  function animateThemeChange(
+    sourceElement,
+    apply
+  ) {
+    const rect =
+      sourceElement?.getBoundingClientRect();
+
+    /*
+      Цвет берём заранее, потому что после
+      applyTheme переменные уже изменятся.
+    */
+
+    const oldBg =
+      getComputedStyle(
+        document.body
+      ).backgroundColor;
+
+    apply();
+
+    if (!rect) return;
+
+    createThemeRipple(
+      rect.left +
+        rect.width / 2,
+
+      rect.top +
+        rect.height / 2,
+
+      oldBg
+    );
+  }
+
+  /* =========================================================
+     THEME CHANGE
+     ========================================================= */
 
   themeSegmented.addEventListener(
     "click",
@@ -1961,35 +1913,33 @@
 
       if (!btn) return;
 
-      const theme =
+      const nextTheme =
         btn.dataset.theme;
 
       if (
-        theme ===
+        nextTheme ===
         state.settings.theme
       ) {
         return;
       }
 
-      applyThemeWithTransition(
+      animateThemeChange(
+        btn,
         () => {
           state.settings.theme =
-            theme;
+            nextTheme;
 
           save();
 
           applyTheme();
-        },
-        btn
+          populateSettingsForm();
+        }
       );
-
-      populateSettingsForm();
     }
   );
 
-
   /* =========================================================
-     ACCENT
+     ACCENT CHANGE
      ========================================================= */
 
   accentSwatches.addEventListener(
@@ -2002,32 +1952,84 @@
 
       if (!btn) return;
 
-      const accent =
+      const nextAccent =
         btn.dataset.accent;
 
       if (
-        accent ===
+        nextAccent ===
         state.settings.accent
       ) {
         return;
       }
 
-      applyThemeWithTransition(
+      /*
+        Небольшая волна от выбранного
+        прямоугольника. Сам selector
+        при этом плавно перестраивается.
+      */
+
+      animateAccentChange(
+        btn,
         () => {
           state.settings.accent =
-            accent;
+            nextAccent;
 
           save();
 
           applyTheme();
-        },
-        btn
+          populateSettingsForm();
+        }
       );
-
-      populateSettingsForm();
     }
   );
 
+  function animateAccentChange(
+    sourceElement,
+    apply
+  ) {
+    const rect =
+      sourceElement.getBoundingClientRect();
+
+    const oldAccent =
+      getComputedStyle(
+        document.documentElement
+      ).getPropertyValue(
+        "--accent"
+      );
+
+    const pulse =
+      document.createElement(
+        "div"
+      );
+
+    pulse.className =
+      "theme-ripple";
+
+    pulse.style.left =
+      `${rect.left +
+        rect.width / 2}px`;
+
+    pulse.style.top =
+      `${rect.top +
+        rect.height / 2}px`;
+
+    pulse.style.setProperty(
+      "--theme-ripple-color",
+      oldAccent
+    );
+
+    document.body.appendChild(
+      pulse
+    );
+
+    apply();
+
+    pulse.addEventListener(
+      "animationend",
+      () => pulse.remove(),
+      { once: true }
+    );
+  }
 
   /* =========================================================
      DEFAULT SWITCHES
@@ -2037,13 +2039,12 @@
     "click",
     () => {
       const on =
-        reasoningDefaultSwitch
-          .getAttribute(
-            "aria-checked"
-          ) !== "true";
+        reasoningDefaultSwitch.getAttribute(
+          "aria-checked"
+        ) !== "true";
 
-      state.settings
-        .reasoningDefault = on;
+      state.settings.reasoningDefault =
+        on;
 
       save();
 
@@ -2054,18 +2055,16 @@
     }
   );
 
-
   roleplayDefaultSwitch.addEventListener(
     "click",
     () => {
       const on =
-        roleplayDefaultSwitch
-          .getAttribute(
-            "aria-checked"
-          ) !== "true";
+        roleplayDefaultSwitch.getAttribute(
+          "aria-checked"
+        ) !== "true";
 
-      state.settings
-        .roleplayDefault = on;
+      state.settings.roleplayDefault =
+        on;
 
       save();
 
@@ -2075,7 +2074,6 @@
       );
     }
   );
-
 
   /* =========================================================
      WIPE DATA
@@ -2095,6 +2093,8 @@
       localStorage.removeItem(
         STORAGE_KEY
       );
+
+      responseVariants.clear();
 
       state =
         defaultState();
@@ -2118,42 +2118,45 @@
     }
   );
 
-
   /* =========================================================
-     THEME / PROFILE
+     APPLY THEME
      ========================================================= */
 
   function applyTheme() {
-    document.documentElement
-      .setAttribute(
-        "data-accent",
-        state.settings.accent
-      );
+    document.documentElement.setAttribute(
+      "data-accent",
+      state.settings.accent
+    );
 
     document.body.classList.toggle(
       "light",
       state.settings.theme ===
         "light"
     );
+
+    themeSegmented.dataset.active =
+      state.settings.theme;
   }
 
+  /* =========================================================
+     PROFILE
+     ========================================================= */
 
   function applyProfileToUI() {
-    const name =
-      state.settings
-        .displayName ||
-      "Ты";
-
     userDisplayName.textContent =
-      name;
+      state.settings
+        .displayName || "Ты";
 
     userAvatar.textContent =
-      name
-        .trim()[0]
-        ?.toUpperCase() ||
-      "Т";
+      (
+        state.settings
+          .displayName ||
+        "Т"
+      )
+        .trim()
+        .charAt(0)
+        .toUpperCase() || "Т";
   }
-
 
   /* =========================================================
      CHAT CONTROLS
@@ -2163,7 +2166,6 @@
     "click",
     createChat
   );
-
 
   deleteChatBtn.addEventListener(
     "click",
@@ -2183,7 +2185,6 @@
     }
   );
 
-
   messageInput.addEventListener(
     "input",
     () => {
@@ -2191,7 +2192,6 @@
       updateSendBtnState();
     }
   );
-
 
   messageInput.addEventListener(
     "keydown",
@@ -2206,12 +2206,10 @@
     }
   );
 
-
   sendBtn.addEventListener(
     "click",
     sendMessage
   );
-
 
   /* =========================================================
      INIT
@@ -2221,7 +2219,6 @@
     renderChatList();
     renderMessages();
   }
-
 
   applyTheme();
   applyProfileToUI();
@@ -2237,6 +2234,6 @@
   );
 
   renderAll();
-
   updateSendBtnState();
+
 })();
