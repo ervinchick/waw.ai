@@ -7,7 +7,7 @@
 
   const STORAGE_KEY = "waw_web_state_v1";
 
-  const API_ENDPOINT = "";
+  const API_ENDPOINT = "https://forwaw-ai.ervin-mandarin.workers.dev";
 
   /* =========================================================
      STORAGE
