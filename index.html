@@ -7,7 +7,8 @@
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -127,6 +128,13 @@
     <section class="settings-section">
       <h3>Внешний вид</h3>
       <label class="field">
+        <span class="field-label">Тема</span>
+        <div class="segmented" id="themeSegmented" role="tablist">
+          <button type="button" data-theme="dark" role="tab">Тёмная</button>
+          <button type="button" data-theme="light" role="tab">Светлая</button>
+        </div>
+      </label>
+      <label class="field">
         <span class="field-label">Акцентный цвет</span>
         <div class="swatch-row" id="accentSwatches">
           <button class="swatch" data-accent="violet" style="--sw:#8B6BFF" aria-label="Фиолетовый"></button>
@@ -135,20 +143,22 @@
           <button class="swatch" data-accent="rose" style="--sw:#E06691" aria-label="Розовый"></button>
         </div>
       </label>
-      <label class="field row">
-        <span class="field-label">Тёмная тема</span>
-        <button class="switch" id="themeSwitch" role="switch" aria-checked="true"><span class="switch-knob"></span></button>
-      </label>
     </section>
 
     <section class="settings-section">
       <h3>Поведение</h3>
       <label class="field row">
-        <span class="field-label">Рассуждения по умолчанию</span>
+        <span>
+          <span class="field-label">Рассуждения по умолчанию</span>
+          <span class="field-hint">Показывать краткое обоснование перед ответом</span>
+        </span>
         <button class="switch" id="reasoningDefaultSwitch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
       </label>
       <label class="field row">
-        <span class="field-label">Roleplay по умолчанию</span>
+        <span>
+          <span class="field-label">Roleplay по умолчанию</span>
+          <span class="field-hint">Более живой, образный стиль ответов</span>
+        </span>
         <button class="switch" id="roleplayDefaultSwitch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
       </label>
     </section>
@@ -156,13 +166,23 @@
     <section class="settings-section">
       <h3>Подключение</h3>
       <label class="field">
-        <span class="field-label">Адрес API-сервера</span>
-        <span class="field-hint">Необязательно. Оставь пустым, чтобы отвечал демо-режим в браузере.</span>
-        <input type="text" id="apiUrlInput" placeholder="https://твой-сервер/api/chat">
+        <span class="field-label">API-ключ</span>
+        <span class="field-hint">Хранится только в твоём браузере и никуда не отправляется, кроме API. Без ключа работает демо-режим.</span>
+        <div class="key-row">
+          <input type="password" id="apiKeyInput" placeholder="sk-or-..." autocomplete="off" spellcheck="false">
+          <button class="icon-btn key-eye" id="toggleKeyVisibility" aria-label="Показать ключ" title="Показать/скрыть ключ">
+            <svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </label>
+      <label class="field">
+        <span class="field-label">Модель</span>
+        <span class="field-hint">Формат провайдер/модель, например: openai/gpt-4o-mini</span>
+        <input type="text" id="apiModelInput" placeholder="openai/gpt-4o-mini" spellcheck="false">
       </label>
     </section>
 
-    <section class="settings-section">
+    <section class="settings-section danger-zone">
       <h3>Данные</h3>
       <button class="danger-btn" id="wipeDataBtn">Удалить все чаты и настройки</button>
     </section>
@@ -170,6 +190,9 @@
   </div>
 </aside>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.5/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
