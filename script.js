@@ -2,14 +2,26 @@
   "use strict";
 
   /* =========================================================
-     STORAGE
+     КОНСТАНТЫ
      ========================================================= */
   const STORAGE_KEY = "waw_web_state_v1";
+  // OpenAI-совместимый endpoint. Можно заменить на свой прокси,
+  // главное — чтобы он принимал { model, messages } и ключ Bearer.
+  const API_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
+  const DEFAULT_MODEL = "openai/gpt-4o-mini";
 
+  /* =========================================================
+     STORAGE
+     ========================================================= */
   function loadState() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // миграция: подмешиваем новые поля настроек к старым сохранениям
+        parsed.settings = Object.assign(defaultState().settings, parsed.settings || {});
+        return parsed;
+      }
     } catch (e) {
       console.warn("WAW: failed to read stored state", e);
     }
@@ -36,15 +48,16 @@
         theme: "dark",
         reasoningDefault: false,
         roleplayDefault: false,
-        apiUrl: "",
+        apiKey: "",
+        apiModel: DEFAULT_MODEL,
       },
     };
   }
 
   let state = loadState() || defaultState();
-  // сессионные переключатели (не default-настройки, а то, что включено прямо сейчас)
   let reasoningOn = state.settings.reasoningDefault;
   let roleplayOn = state.settings.roleplayDefault;
+  let isGenerating = false; // не даём отправлять, пока WAW печатает
 
   function save() {
     try {
@@ -96,11 +109,32 @@
   const personalInstructionInput = $("personalInstructionInput");
   const piCount = $("piCount");
   const accentSwatches = $("accentSwatches");
-  const themeSwitch = $("themeSwitch");
+  const themeSegmented = $("themeSegmented");
   const reasoningDefaultSwitch = $("reasoningDefaultSwitch");
   const roleplayDefaultSwitch = $("roleplayDefaultSwitch");
-  const apiUrlInput = $("apiUrlInput");
+  const apiKeyInput = $("apiKeyInput");
+  const toggleKeyVisibility = $("toggleKeyVisibility");
+  const apiModelInput = $("apiModelInput");
   const wipeDataBtn = $("wipeDataBtn");
+
+  /* =========================================================
+     MARKDOWN + ПОДСВЕТКА
+     ========================================================= */
+  function renderMarkdown(el, text, withCaret) {
+    if (window.marked && window.DOMPurify) {
+      const html = marked.parse(text, { breaks: true, gfm: true });
+      el.innerHTML = DOMPurify.sanitize(html) + (withCaret ? '<span class="stream-caret"></span>' : "");
+    } else {
+      el.textContent = text + (withCaret ? "▌" : "");
+    }
+  }
+
+  function highlightCode(root) {
+    if (!window.hljs) return;
+    root.querySelectorAll("pre code").forEach((block) => {
+      try { hljs.highlightElement(block); } catch (e) { /* noop */ }
+    });
+  }
 
   /* =========================================================
      RENDER: sidebar chat list
@@ -177,7 +211,7 @@
   }
 
   /* =========================================================
-     RENDER: messages (Telegram-стиль: юзер справа, WAW слева)
+     RENDER: сообщения — только пузыри, без аватарок и ников
      ========================================================= */
   function renderMessages() {
     const chat = getActiveChat();
@@ -190,22 +224,21 @@
     }
     emptyStateEl.style.display = "none";
 
-    chat.messages.forEach((m) => appendMessageEl(m));
+    chat.messages.forEach((m) => {
+      const { body, textEl } = buildMessageShell(m);
+      renderMarkdown(textEl, m.text, false);
+      highlightCode(textEl);
+      messagesEl.appendChild(body);
+    });
     scrollThreadToBottom();
   }
 
-  function appendMessageEl(m) {
+  function buildMessageShell(m) {
     const wrap = document.createElement("div");
     wrap.className = "msg " + (m.role === "user" ? "user" : "model");
 
     const body = document.createElement("div");
     body.className = "msg-body";
-
-    const name = document.createElement("div");
-    name.className = "msg-name";
-    name.textContent =
-      m.role === "user" ? state.settings.displayName || "Ты" : "WAW";
-    body.appendChild(name);
 
     if (m.reasoning) {
       const reasoning = document.createElement("div");
@@ -214,27 +247,12 @@
       body.appendChild(reasoning);
     }
 
-    const text = document.createElement("div");
-    text.className = "msg-text";
-    text.textContent = m.text;
-    body.appendChild(text);
+    const textEl = document.createElement("div");
+    textEl.className = "msg-text";
+    body.appendChild(textEl);
 
-    // Аватар: только у WAW слева; у пользователя — только пузырь справа
-    if (m.role !== "user") {
-      const avatar = document.createElement("div");
-      avatar.className = "bubble-avatar";
-      avatar.textContent = "W";
-      wrap.appendChild(avatar);
-      wrap.appendChild(body);
-    } else {
-      wrap.appendChild(body);
-      const avatar = document.createElement("div");
-      avatar.className = "bubble-avatar";
-      avatar.textContent = (state.settings.displayName || "Т").trim()[0]?.toUpperCase() || "Т";
-      wrap.appendChild(avatar);
-    }
-
-    messagesEl.appendChild(wrap);
+    wrap.appendChild(body);
+    return { wrap, body, textEl };
   }
 
   function scrollThreadToBottom() {
@@ -244,7 +262,39 @@
   }
 
   /* =========================================================
-     TYPING / THINKING INDICATOR
+     Плавный стрим текста сверху вниз (печатная машинка)
+     ========================================================= */
+  function streamText(textEl, fullText) {
+    return new Promise((resolve) => {
+      const len = fullText.length;
+      // длительность: длинные ответы печатаются быстрее, но не дольше ~4с
+      const duration = Math.min(4000, Math.max(900, len * 16));
+      const start = performance.now();
+      let raf = null;
+
+      function tick(now) {
+        const p = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - p, 2); // ease-out
+        const cut = Math.floor(len * eased);
+        renderMarkdown(textEl, fullText.slice(0, cut), p < 1);
+        threadEl.scrollTop = threadEl.scrollHeight;
+
+        if (p < 1) {
+          raf = requestAnimationFrame(tick);
+        } else {
+          renderMarkdown(textEl, fullText, false);
+          highlightCode(textEl);
+          threadEl.scrollTop = threadEl.scrollHeight;
+          resolve();
+        }
+      }
+
+      raf = requestAnimationFrame(tick);
+    });
+  }
+
+  /* =========================================================
+     TYPING INDICATOR
      ========================================================= */
   function showTyping() {
     brandDot.classList.add("thinking");
@@ -254,9 +304,7 @@
     wrap.className = "msg model";
     wrap.id = "typingRow";
     wrap.innerHTML = `
-      <div class="bubble-avatar">W</div>
       <div class="msg-body">
-        <div class="msg-name">WAW</div>
         <div class="typing"><span></span><span></span><span></span></div>
       </div>`;
     messagesEl.appendChild(wrap);
@@ -278,12 +326,12 @@
   }
 
   function updateSendBtnState() {
-    sendBtn.disabled = messageInput.value.trim().length === 0;
+    sendBtn.disabled = messageInput.value.trim().length === 0 || isGenerating;
   }
 
   async function sendMessage() {
     const text = messageInput.value.trim();
-    if (!text) return;
+    if (!text || isGenerating) return;
 
     const chat = getActiveChat();
 
@@ -300,83 +348,131 @@
     autoResizeInput();
     updateSendBtnState();
 
+    isGenerating = true;
     showTyping();
 
     try {
       const { answer, reasoning } = await getReply(chat);
       hideTyping();
-      chat.messages.push({
+
+      const msg = {
         role: "model",
         text: answer,
         reasoning: reasoning || undefined,
         createdAt: Date.now(),
-      });
+      };
+      chat.messages.push(msg);
       save();
-      renderMessages();
+
+      // добавляем пустой пузырь и плавно печатаем в него сверху вниз
+      const { body, textEl } = buildMessageShell(msg);
+      messagesEl.appendChild(body);
+      scrollThreadToBottom();
+
+      await streamText(textEl, answer);
     } catch (err) {
       console.error("WAW: reply failed", err);
       hideTyping();
-      chat.messages.push({
+      const msg = {
         role: "model",
-        text: "не удалось получить ответ. попробуй ещё раз чуть позже",
+        text: "не удалось получить ответ. проверь API-ключ в настройках или попробуй позже",
         createdAt: Date.now(),
-      });
+      };
+      chat.messages.push(msg);
       save();
-      renderMessages();
+      const { body, textEl } = buildMessageShell(msg);
+      messagesEl.appendChild(body);
+      await streamText(textEl, msg.text);
+    } finally {
+      isGenerating = false;
+      updateSendBtnState();
+      messageInput.focus();
     }
   }
 
-  /**
-   * Пытается получить ответ от настоящего API-сервера (если задан адрес
-   * в настройках), иначе отвечает демо-режимом прямо в браузере.
-   *
-   * Формат запроса к серверу — под замену под ваш api-server:
-   *   POST { messages, personalInstruction, reasoning, roleplay }
-   *   ответ: { text, reasoning? }
-   */
+  /* =========================================================
+     REPLY: настоящий API по ключу ИЛИ демо-режим
+     ========================================================= */
+  function buildSystemPrompt() {
+    const parts = ["Ты — WAW, дружелюбный ИИ-ассистент. Отвечай на языке пользователя, используй Markdown: заголовки, списки, **жирный**, код в ```блоках``` где уместно."];
+    if (state.settings.personalInstruction) {
+      parts.push("Персональная инструкция пользователя: " + state.settings.personalInstruction);
+    }
+    if (roleplayOn) {
+      parts.push("Стиль: живой, образный, с лёгкой эмоциональной окраской, как разговор с хорошим другом.");
+    }
+    if (reasoningOn) {
+      parts.push("Перед ответом напиши краткое рассуждение (1–2 предложения) в формате «Рассуждение: …», затем сам ответ после слова «Ответ: ».");
+    }
+    return parts.join("\n");
+  }
+
   async function getReply(chat) {
-    const apiUrl = state.settings.apiUrl.trim();
+    const apiKey = state.settings.apiKey.trim();
 
-    if (apiUrl) {
-      const res = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          messages: chat.messages.map((m) => ({ role: m.role, text: m.text })),
-          personalInstruction: state.settings.personalInstruction || null,
-          reasoning: reasoningOn,
-          roleplay: roleplayOn,
-        }),
-      });
+    // ---- демо-режим без ключа ----
+    if (!apiKey) return demoReply(chat);
 
-      if (!res.ok) throw new Error(`API вернул ${res.status}`);
-      const data = await res.json();
-      return { answer: data.text ?? "пустой ответ", reasoning: data.reasoning };
+    // ---- настоящий API ----
+    const history = chat.messages
+      .filter((m) => m.text)
+      .map((m) => ({
+        role: m.role === "model" ? "assistant" : "user",
+        content: m.text,
+      }));
+
+    const res = await fetch(API_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: state.settings.apiModel.trim() || DEFAULT_MODEL,
+        messages: [{ role: "system", content: buildSystemPrompt() }, ...history],
+      }),
+    });
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`API вернул ${res.status}: ${detail.slice(0, 200)}`);
     }
 
-    return demoReply(chat);
+    const data = await res.json();
+    const raw = data?.choices?.[0]?.message?.content ?? "пустой ответ";
+
+    return parseReasoning(raw);
   }
 
-  /** Демо-ответ без бэкенда — имитирует поведение бота для превью на GitHub Pages. */
+  /** Выделяет «Рассуждение: … Ответ: …», если модель его вернула. */
+  function parseReasoning(raw) {
+    if (!reasoningOn) return { answer: raw.trim(), reasoning: undefined };
+    const match = raw.match(/рассуждение\s*:\s*([\s\S]*?)\s*ответ\s*:\s*([\s\S]*)/i);
+    if (match) {
+      return { reasoning: match[1].trim(), answer: match[2].trim() };
+    }
+    return { answer: raw.trim(), reasoning: undefined };
+  }
+
+  /** Демо-ответ без бэкенда — для превью и пока нет ключа. */
   function demoReply(chat) {
     const lastUser = [...chat.messages].reverse().find((m) => m.role === "user");
     const userText = lastUser ? lastUser.text : "";
-
     const delay = 500 + Math.random() * 700;
 
     const openers = roleplayOn
-      ? [
-          "хм, дай подумать вместе с тобой —",
-          "о, интересный вопрос!",
-          "ладно, слушай сюда:",
-        ]
+      ? ["хм, дай подумать вместе с тобой —", "о, интересный вопрос!", "ладно, слушай сюда:"]
       : ["", "", ""];
 
     const opener = openers[Math.floor(Math.random() * openers.length)];
 
-    let answer = `это демо-режим WAW прямо в браузере: настоящий ответ будет приходить с твоего API-сервера, как только укажешь его адрес в настройках. ${
+    const answer = `это **демо-режим** WAW прямо в браузере: добавь свой API-ключ в настройках, и ответы будут приходить от настоящей модели. ${
       opener ? opener + " " : ""
-    }пока могу только отразить то, что ты написал: «${truncate(userText, 160)}»`;
+    }пока могу только отразить то, что ты написал: «${truncate(userText, 160)}»
+
+\`\`\`
+настройки → подключение → API-ключ
+\`\`\``;
 
     let reasoning;
     if (reasoningOn) {
@@ -447,20 +543,30 @@
   closeSettingsBtn.addEventListener("click", closeSettings);
   settingsScrim.addEventListener("click", closeSettings);
 
+  // Escape закрывает панели
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeSettings();
+      closeSidebar();
+    }
+  });
+
   function populateSettingsForm() {
     displayNameInput.value = state.settings.displayName;
     personalInstructionInput.value = state.settings.personalInstruction;
     piCount.textContent = String(state.settings.personalInstruction.length);
-    apiUrlInput.value = state.settings.apiUrl;
+    apiKeyInput.value = state.settings.apiKey;
+    apiModelInput.value = state.settings.apiModel;
 
-    document.querySelectorAll(".swatch").forEach((sw) => {
-      sw.classList.toggle(
-        "active",
-        sw.dataset.accent === state.settings.accent,
-      );
+    // сегмент темы
+    themeSegmented.querySelectorAll("button").forEach((b) => {
+      b.classList.toggle("active", b.dataset.theme === state.settings.theme);
     });
 
-    setSwitch(themeSwitch, state.settings.theme === "dark");
+    document.querySelectorAll(".swatch").forEach((sw) => {
+      sw.classList.toggle("active", sw.dataset.accent === state.settings.accent);
+    });
+
     setSwitch(reasoningDefaultSwitch, state.settings.reasoningDefault);
     setSwitch(roleplayDefaultSwitch, state.settings.roleplayDefault);
   }
@@ -482,9 +588,30 @@
     save();
   });
 
-  apiUrlInput.addEventListener("input", () => {
-    state.settings.apiUrl = apiUrlInput.value.trim();
+  apiKeyInput.addEventListener("input", () => {
+    state.settings.apiKey = apiKeyInput.value.trim();
     save();
+  });
+
+  toggleKeyVisibility.addEventListener("click", () => {
+    const show = apiKeyInput.type === "password";
+    apiKeyInput.type = show ? "text" : "password";
+    toggleKeyVisibility.setAttribute("aria-label", show ? "Скрыть ключ" : "Показать ключ");
+    apiKeyInput.focus();
+  });
+
+  apiModelInput.addEventListener("input", () => {
+    state.settings.apiModel = apiModelInput.value.trim() || DEFAULT_MODEL;
+    save();
+  });
+
+  themeSegmented.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-theme]");
+    if (!btn) return;
+    state.settings.theme = btn.dataset.theme;
+    save();
+    applyTheme();
+    populateSettingsForm();
   });
 
   accentSwatches.addEventListener("click", (e) => {
@@ -494,14 +621,6 @@
     save();
     applyTheme();
     populateSettingsForm();
-  });
-
-  themeSwitch.addEventListener("click", () => {
-    const on = themeSwitch.getAttribute("aria-checked") !== "true";
-    state.settings.theme = on ? "dark" : "light";
-    save();
-    setSwitch(themeSwitch, on);
-    applyTheme();
   });
 
   reasoningDefaultSwitch.addEventListener("click", () => {
@@ -535,7 +654,6 @@
      THEME / PROFILE APPLY
      ========================================================= */
   function applyTheme() {
-    // Акцентный цвет — на <html>, тема — класс light на <body>
     document.documentElement.setAttribute("data-accent", state.settings.accent);
     document.body.classList.toggle("light", state.settings.theme === "light");
   }
