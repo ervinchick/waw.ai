@@ -569,6 +569,49 @@
     }
   }
 
+  /* =========================================================
+     ПРИВЕТСТВИЕ
+     ========================================================= */
+  const EMPTY_GREETINGS = [
+    "не хочешь поговорить?",
+    "о чём поговорим?",
+    "с чего начнём?",
+    "я тут. что скажешь?",
+    "есть что обсудить?",
+    "давай поболтаем",
+    "как ты сегодня?",
+    "что на душе?",
+    "как настроение?",
+    "что нового?",
+    "ну что, поговорим?",
+    "я слушаю",
+    "давай, удиви меня",
+    "рассказывай",
+    "о чём думаешь?",
+    "что тебя занимает?",
+    "есть мысли?",
+    "я на связи",
+    "waw тут. чем займёмся?",
+    "я готов слушать",
+  ];
+
+  function pickGreeting() {
+    const name = state.settings.displayName && state.settings.displayName !== "Ты"
+      ? state.settings.displayName
+      : null;
+
+    const phrase = EMPTY_GREETINGS[Math.floor(Math.random() * EMPTY_GREETINGS.length)];
+
+    if (name && Math.random() < 0.3) {
+      return `${name}, ${phrase}`;
+    }
+
+    return phrase;
+  }
+
+  /* =========================================================
+     RENDER MESSAGES
+     ========================================================= */
   function renderMessages() {
     const chat = getActiveChat();
     topbarTitleEl.textContent = chat.title;
@@ -576,16 +619,18 @@
 
     if (chat.messages.length === 0) {
       emptyStateEl.style.display = "block";
+      const greeting = $("emptyGreeting");
+      if (greeting) greeting.textContent = pickGreeting();
       return;
     }
     emptyStateEl.style.display = "none";
 
     chat.messages.forEach((m) => {
-      if (m.role === "model") ensureVariantData(m);
       const { wrap, textEl } = buildMessageShell(m);
       renderMarkdown(textEl, m.text, false);
       highlightCode(textEl);
       messagesEl.appendChild(wrap);
+      if (m.role === "model") ensureVariantData(m);
     });
 
     scrollThreadToBottom();
@@ -598,7 +643,7 @@
   function streamText(textEl, fullText) {
     return new Promise((resolve) => {
       const len = fullText.length;
-      const duration = Math.min(4000, Math.max(900, len * 16));
+      const duration = Math.min(1400, Math.max(300, len * 6));
       const start = performance.now();
       let lastRender = 0;
 
@@ -855,7 +900,7 @@
   sidebarScrim.addEventListener("click", closeSidebar);
 
   /* =========================================================
-     SETTINGS MODAL
+     SETTINGS
      ========================================================= */
   function openSettings() {
     populateSettingsForm();
@@ -1067,53 +1112,4 @@
   setToggle(roleplayToggle, roleplayOn);
   renderAll();
   updateSendBtnState();
-
-  /* =========================================================
-     MOBILE: свайп-закрытие сайдбара
-     ========================================================= */
-  (function initSwipeClose() {
-    let startX = 0;
-    let startY = 0;
-    let tracking = false;
-
-    sidebarEl.addEventListener("touchstart", (e) => {
-      if (!sidebarEl.classList.contains("open")) return;
-      const t = e.touches[0];
-      startX = t.clientX;
-      startY = t.clientY;
-      tracking = true;
-    }, { passive: true });
-
-    sidebarEl.addEventListener("touchmove", (e) => {
-      if (!tracking) return;
-      const t = e.touches[0];
-      const dx = t.clientX - startX;
-      const dy = t.clientY - startY;
-      if (Math.abs(dx) < Math.abs(dy)) return; // вертикальный скролл
-      if (dx < -50) {
-        tracking = false;
-        closeSidebar();
-      }
-    }, { passive: true });
-
-    sidebarEl.addEventListener("touchend", () => {
-      tracking = false;
-    }, { passive: true });
-  })();
-
-  /* =========================================================
-     MOBILE: тактильная отдача (если поддерживается)
-     ========================================================= */
-  function haptic(ms) {
-    if (navigator.vibrate) {
-      try { navigator.vibrate(ms); } catch (e) {}
-    }
-  }
-
-  document.addEventListener("click", (e) => {
-    const target = e.target.closest(
-      ".chat-action, .msg-action, .pill-toggle, .swatch, .segmented button, .icon-btn, .send-btn, .new-chat-btn, .waw-modal-btn, .danger-btn"
-    );
-    if (target) haptic(10);
-  }, true);
 })();
