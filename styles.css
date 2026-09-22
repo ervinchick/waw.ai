@@ -768,10 +768,12 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
       transform .34s cubic-bezier(.32,.72,.28,1),
       opacity .25s ease;
     will-change:transform, opacity;
+    pointer-events:none;
   }
   .sidebar.open{
     transform:translateX(0);
     opacity:1;
+    pointer-events:auto;
   }
 
   .sidebar-top{ padding:4px 6px 20px; }
@@ -890,29 +892,27 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
   .attach-preview{ max-width:200px; border-radius:14px; }
   .attach-remove{ width:32px; height:32px; font-size:20px; }
 
-  /* ---------- SETTINGS: карточка по центру ---------- */
+  /* ---------- SETTINGS: карточка по центру, не на весь экран ---------- */
   .settings-scrim.open{
     padding:16px;
     align-items:center;
     justify-content:center;
   }
   .settings-modal{
-    max-width:100%;
-    max-height:calc(100vh - 32px);
-    border-radius:24px;
-    transform:translateY(14px) scale(.97);
+    max-width:480px;
+    width:100%;
+    max-height:min(82vh, calc(100vh - 32px));
+    border-radius:26px;
+    transform:translateY(18px) scale(.96);
     opacity:0;
     transition:
-      transform .3s cubic-bezier(.32,.72,.28,1),
+      transform .32s cubic-bezier(.32,.72,.28,1),
       opacity .25s ease;
   }
   .settings-scrim.open .settings-modal{
     transform:translateY(0) scale(1);
     opacity:1;
   }
-
-  /* убираем «ручку» — это не bottom sheet */
-  .settings-modal::before{ display:none; }
 
   .settings-header{ padding:20px 20px 16px; align-items:flex-start; }
   .settings-header h2{ font-size:19px; }
@@ -923,20 +923,21 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
     gap:14px;
   }
 
-  .settings-section{ padding:16px; border-radius:16px; }
+  .settings-section{ padding:16px; border-radius:18px; }
 
   .field input[type="text"], .field textarea{
-    font-size:16px; padding:13px 14px; border-radius:10px;
+    font-size:16px; padding:13px 14px; border-radius:12px;
   }
 
-  .segmented button{ padding:12px 6px; font-size:13px; }
+  .segmented{ border-radius:12px; }
+  .segmented button{ padding:12px 6px; font-size:13px; border-radius:9px; }
   .swatch{ width:36px; height:36px; }
 
-  .switch{ width:52px; height:30px; }
-  .switch-knob{ width:24px; height:24px; }
-  .switch[aria-checked="true"] .switch-knob{ transform:translateX(22px); }
+  .switch{ width:50px; height:30px; }
+  .switch-knob{ width:24px; height:24px; top:2px; left:2px; }
+  .switch[aria-checked="true"] .switch-knob{ transform:translateX(20px); }
 
-  .danger-btn{ padding:14px; font-size:15px; border-radius:12px; }
+  .danger-btn{ padding:14px; font-size:15px; border-radius:14px; }
 
   /* ---------- CONFIRM: карточка по центру ---------- */
   .waw-modal-scrim.open{
@@ -945,7 +946,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
     justify-content:center;
   }
   .waw-modal{
-    border-radius:20px;
+    border-radius:22px;
     padding:22px 20px 18px;
     max-width:min(100%, 400px);
     transform:scale(.96);
@@ -955,7 +956,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
   .waw-modal-scrim.open .waw-modal{ transform:scale(1); opacity:1; }
   .waw-modal h3{ font-size:17px; }
   .waw-modal p{ font-size:14.5px; }
-  .waw-modal-btn{ padding:12px 18px; font-size:15px; }
+  .waw-modal-btn{ padding:12px 18px; font-size:15px; border-radius:12px; }
 
   /* ---------- Empty ---------- */
   .empty-state{ padding:24px 20px; }
@@ -975,6 +976,6 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
   .pill-toggle{ padding:12px; }
   .pill-toggle svg{ width:20px; height:20px; }
 
-  .sidebar{ width:min(300px, 90vw); }
-  .settings-modal{ max-height:calc(100vh - 24px); }
+  .sidebar{ width:min(300px, 86vw); }
+  .settings-modal{ max-height:min(80vh, calc(100vh - 24px)); }
 }
