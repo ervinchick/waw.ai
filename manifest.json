@@ -1,0 +1,17 @@
+{
+  "name": "WAW — Wawid Studios",
+  "short_name": "WAW",
+  "description": "Разговорный ИИ от Wawid Studios",
+  "start_url": "/waw.ai/",
+  "display": "standalone",
+  "background_color": "#0E0B19",
+  "theme_color": "#8B6BFF",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
