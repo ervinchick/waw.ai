@@ -82,9 +82,6 @@ button{ font-family:inherit; cursor:pointer; }
 textarea, input{ font-family:inherit; }
 ::selection{ background:var(--accent); color:var(--accent-ink); }
 
-/* ===========================================================
-   Layout shell
-   =========================================================== */
 .app{ display:flex; height:100vh; height:100dvh; }
 
 /* ===========================================================
@@ -133,24 +130,42 @@ textarea, input{ font-family:inherit; }
 
 .chat-list{ flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:2px; padding-right:2px; }
 .chat-item{
-  display:flex; align-items:center; gap:8px;
+  display:flex; align-items:center; gap:6px;
   padding:9px 10px; border-radius:var(--radius-s);
   color:var(--text-muted); font-size:13.5px;
   cursor:pointer; position:relative; border:1px solid transparent;
   transition: background .15s ease, color .15s ease, transform .12s ease;
 }
-.chat-item:hover{ background:var(--surface-2); color:var(--text); transform:translateX(2px); }
+.chat-item:hover{ background:var(--surface-2); color:var(--text); }
 .chat-item.active{ background:var(--accent-dim); color:var(--text); }
-.chat-item .title{ flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.chat-item .del{
-  opacity:0; color:var(--text-faint);
-  padding:2px; border-radius:6px;
-  background:transparent; border:none;
-  transition: opacity .15s ease, color .15s ease, background .15s ease;
+.chat-item .title{ flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+
+.chat-actions{
+  display:flex;
+  align-items:center;
+  gap:2px;
+  opacity:0;
+  transition: opacity .15s ease;
+  flex:0 0 auto;
 }
-.chat-item:hover .del{ opacity:1; }
-.chat-item .del:hover{ color:var(--danger); background:rgba(224,102,122,0.12); }
-.chat-item .del svg{ width:14px; height:14px; }
+.chat-item:hover .chat-actions,
+.chat-item:focus-within .chat-actions{
+  opacity:1;
+}
+.chat-action{
+  width:26px; height:26px;
+  border-radius:6px;
+  border:none;
+  background:transparent;
+  color:var(--text-faint);
+  display:flex; align-items:center; justify-content:center;
+  padding:0;
+  transition: background .15s ease, color .15s ease, transform .15s ease;
+}
+.chat-action svg{ width:14px; height:14px; }
+.chat-action:hover{ background:var(--surface-3); color:var(--text); transform:scale(1.08); }
+.chat-action.edit:hover{ color:var(--accent); background:rgba(139,107,255,0.12); }
+.chat-action.del:hover{ color:var(--danger); background:rgba(224,102,122,0.12); }
 
 .chat-rename-input{
   flex:1; min-width:0;
@@ -193,7 +208,7 @@ textarea, input{ font-family:inherit; }
 .sidebar-scrim.open{ display:block; opacity:1; }
 
 /* ===========================================================
-   Main column
+   Main
    =========================================================== */
 .main{ flex:1; display:flex; flex-direction:column; min-width:0; }
 .topbar{
@@ -486,7 +501,7 @@ textarea, input{ font-family:inherit; }
 .composer-hint{ font-size:11.5px; color:var(--text-faint); margin-top:8px; }
 
 /* ===========================================================
-   Settings panel
+   Settings
    =========================================================== */
 .settings-scrim{
   display:none; position:fixed; inset:0;
@@ -506,7 +521,6 @@ textarea, input{ font-family:inherit; }
   box-shadow:var(--shadow-panel);
 }
 .settings-panel.open{ transform:translateX(0); }
-
 .settings-header{
   display:flex; align-items:center; justify-content:space-between;
   padding:18px 20px 14px;
@@ -514,13 +528,11 @@ textarea, input{ font-family:inherit; }
   transition: border-color .35s ease;
 }
 .settings-header h2{ font-family:var(--font-ui); font-size:17px; font-weight:600; margin:0; }
-
 .settings-body{
   flex:1; overflow-y:auto;
   padding:16px 18px 40px;
   display:flex; flex-direction:column; gap:14px;
 }
-
 .settings-section{
   background:var(--surface-2);
   border:1px solid var(--border);
@@ -627,7 +639,7 @@ textarea, input{ font-family:inherit; }
 }
 
 /* ===========================================================
-   Модальное окно WAW
+   Modal
    =========================================================== */
 .waw-modal-scrim{
   display:none; position:fixed; inset:0;
@@ -741,6 +753,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
   .empty-state p{ font-size:13.5px; }
 
   .segmented button{ font-size:11.5px; padding:8px 4px; }
+
+  /* На мобилке кнопки чата всегда видны */
+  .chat-actions{ opacity:1; }
+  .chat-action{ width:32px; height:32px; }
+  .chat-action svg{ width:16px; height:16px; }
 }
 
 @media (max-width: 400px){
