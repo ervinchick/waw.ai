@@ -1,14 +1,9 @@
 (() => {
   "use strict";
 
-  /* =========================================================
-     КОНСТАНТЫ
-     ========================================================= */
   const STORAGE_KEY = "waw_web_state_v1";
-
   const API_ENDPOINT =
     "https://forwaw-ai.ervin-mandarin.workers.dev/chat";
-
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
   /* =========================================================
@@ -72,9 +67,7 @@
   }
 
   function getActiveChat() {
-    return (
-      state.chats.find((c) => c.id === state.activeChatId) || state.chats[0]
-    );
+    return state.chats.find((c) => c.id === state.activeChatId) || state.chats[0];
   }
 
   /* =========================================================
@@ -127,7 +120,6 @@
 
   const wipeDataBtn = $("wipeDataBtn");
 
-  // Modal
   const wawModalScrim = $("wawModalScrim");
   const wawModalTitle = $("wawModalTitle");
   const wawModalText = $("wawModalText");
@@ -141,9 +133,7 @@
     wawModalText.textContent = text;
     wawModalConfirm.textContent = confirmLabel || "Удалить";
     wawModalScrim.classList.add("open");
-    return new Promise((resolve) => {
-      modalResolver = resolve;
-    });
+    return new Promise((resolve) => { modalResolver = resolve; });
   }
 
   function closeModal(result) {
@@ -182,7 +172,7 @@
   }
 
   /* =========================================================
-     CHAT LIST
+     RENAME CHAT
      ========================================================= */
   function startRenameChat(chat, titleEl) {
     const current = chat.title;
@@ -218,6 +208,9 @@
     });
   }
 
+  /* =========================================================
+     CHAT LIST
+     ========================================================= */
   function renderChatList() {
     chatListEl.innerHTML = "";
     state.chats.forEach((chat) => {
@@ -229,30 +222,27 @@
       const title = document.createElement("span");
       title.className = "title";
       title.textContent = chat.title;
-      title.title = "Двойной тап — переименовать";
 
-      title.addEventListener("dblclick", (e) => {
+      const actions = document.createElement("div");
+      actions.className = "chat-actions";
+
+      const edit = document.createElement("button");
+      edit.className = "chat-action edit";
+      edit.setAttribute("aria-label", "Переименовать чат");
+      edit.title = "Переименовать";
+      edit.innerHTML =
+        '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
+      edit.addEventListener("click", (e) => {
         e.stopPropagation();
         startRenameChat(chat, title);
       });
 
-      let lastTap = 0;
-      title.addEventListener("touchend", (e) => {
-        const now = Date.now();
-        if (now - lastTap < 350) {
-          e.preventDefault();
-          e.stopPropagation();
-          startRenameChat(chat, title);
-        }
-        lastTap = now;
-      });
-
       const del = document.createElement("button");
-      del.className = "del";
+      del.className = "chat-action del";
       del.setAttribute("aria-label", "Удалить чат");
+      del.title = "Удалить";
       del.innerHTML =
         '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>';
-
       del.addEventListener("click", async (e) => {
         e.stopPropagation();
         const ok = await showConfirm(
@@ -263,8 +253,11 @@
         if (ok) deleteChat(chat.id);
       });
 
+      actions.appendChild(edit);
+      actions.appendChild(del);
+
       item.appendChild(title);
-      item.appendChild(del);
+      item.appendChild(actions);
 
       item.addEventListener("click", () => selectChat(chat.id));
       item.addEventListener("keydown", (e) => {
@@ -426,18 +419,14 @@
 
     const versions = document.createElement("div");
     versions.className = "msg-versions";
-
     const prevBtn = document.createElement("button");
     prevBtn.className = "msg-version-arrow";
     prevBtn.innerHTML = "‹";
-
     const count = document.createElement("span");
     count.className = "msg-version-count";
-
     const nextBtn = document.createElement("button");
     nextBtn.className = "msg-version-arrow";
     nextBtn.innerHTML = "›";
-
     versions.appendChild(prevBtn);
     versions.appendChild(count);
     versions.appendChild(nextBtn);
@@ -484,7 +473,6 @@
   function renderVariantInPlace(originalMessage, body) {
     const data = getVariantData(originalMessage);
     if (!data || !data.variants[data.current]) return;
-
     const variant = data.variants[data.current];
     const textEl = body.querySelector(".msg-text");
     if (!textEl) return;
@@ -525,7 +513,6 @@
 
   async function retryMessage(originalMessage) {
     if (isGenerating) return;
-
     const chat = getActiveChat();
     const index = chat.messages.findIndex((m) => m.id === originalMessage.id);
     if (index === -1) return;
@@ -553,7 +540,6 @@
 
     try {
       const result = await getReply(chat.messages.slice(0, index), null);
-
       const variant = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         role: "model",
@@ -591,9 +577,6 @@
     }
   }
 
-  /* =========================================================
-     RENDER MESSAGES
-     ========================================================= */
   function renderMessages() {
     const chat = getActiveChat();
     topbarTitleEl.textContent = chat.title;
@@ -622,9 +605,6 @@
     });
   }
 
-  /* =========================================================
-     STREAMING
-     ========================================================= */
   function streamText(textEl, fullText) {
     return new Promise((resolve) => {
       const len = fullText.length;
@@ -636,13 +616,11 @@
         const p = Math.min(1, (now - start) / duration);
         const eased = 1 - Math.pow(1 - p, 2);
         const cut = Math.floor(len * eased);
-
         if (now - lastRender >= 32 || p >= 1) {
           renderMarkdown(textEl, fullText.slice(0, cut), p < 1);
           lastRender = now;
           threadEl.scrollTop = threadEl.scrollHeight;
         }
-
         if (p < 1) {
           requestAnimationFrame(tick);
         } else {
@@ -652,14 +630,10 @@
           resolve();
         }
       }
-
       requestAnimationFrame(tick);
     });
   }
 
-  /* =========================================================
-     TYPING
-     ========================================================= */
   function showTyping() {
     brandDot.classList.add("thinking");
     emptyStateEl.style.display = "none";
@@ -959,9 +933,6 @@
     save();
   });
 
-  /* =========================================================
-     THEME RIPPLE
-     ========================================================= */
   function createThemeRipple(x, y, color) {
     const ripple = document.createElement("div");
     ripple.className = "theme-ripple";
@@ -984,13 +955,9 @@
     );
   }
 
-  /* =========================================================
-     THEME CHANGE
-     ========================================================= */
   themeSegmented.addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-theme]");
     if (!btn) return;
-
     const nextTheme = btn.dataset.theme;
     if (nextTheme === state.settings.theme) return;
 
@@ -1002,9 +969,6 @@
     });
   });
 
-  /* =========================================================
-     ACCENT CHANGE
-     ========================================================= */
   accentSwatches.addEventListener("click", (e) => {
     const btn = e.target.closest(".swatch");
     if (!btn) return;
@@ -1026,9 +990,6 @@
     );
   });
 
-  /* =========================================================
-     DEFAULT SWITCHES
-     ========================================================= */
   reasoningDefaultSwitch.addEventListener("click", () => {
     const on = reasoningDefaultSwitch.getAttribute("aria-checked") !== "true";
     state.settings.reasoningDefault = on;
@@ -1043,9 +1004,6 @@
     setSwitch(roleplayDefaultSwitch, on);
   });
 
-  /* =========================================================
-     WIPE DATA
-     ========================================================= */
   wipeDataBtn.addEventListener("click", async () => {
     const ok = await showConfirm(
       "Удалить всё?",
@@ -1066,9 +1024,6 @@
     renderAll();
   });
 
-  /* =========================================================
-     APPLY THEME
-     ========================================================= */
   function resolveTheme() {
     const t = state.settings.theme;
     if (t === "system") {
@@ -1090,18 +1045,12 @@
     if (state.settings.theme === "system") applyTheme();
   });
 
-  /* =========================================================
-     PROFILE
-     ========================================================= */
   function applyProfileToUI() {
     userDisplayName.textContent = state.settings.displayName || "Ты";
     userAvatar.textContent =
       (state.settings.displayName || "Т").trim().charAt(0).toUpperCase() || "Т";
   }
 
-  /* =========================================================
-     CHAT CONTROLS
-     ========================================================= */
   newChatBtn.addEventListener("click", createChat);
 
   deleteChatBtn.addEventListener("click", async () => {
@@ -1128,9 +1077,6 @@
 
   sendBtn.addEventListener("click", sendMessage);
 
-  /* =========================================================
-     INIT
-     ========================================================= */
   function renderAll() {
     renderChatList();
     renderMessages();
