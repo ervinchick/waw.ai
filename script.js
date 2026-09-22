@@ -9,7 +9,7 @@
   const API_ENDPOINT =
     "https://forwaw-ai.ervin-mandarin.workers.dev/chat";
 
-  const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 МБ
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
   /* =========================================================
      STORAGE
@@ -59,7 +59,7 @@
   let reasoningOn = state.settings.reasoningDefault;
   let roleplayOn = state.settings.roleplayDefault;
   let isGenerating = false;
-  let pendingImage = null; // { dataUrl, mimeType, name }
+  let pendingImage = null;
 
   const responseVariants = new Map();
 
@@ -127,12 +127,44 @@
 
   const wipeDataBtn = $("wipeDataBtn");
 
+  // Modal
+  const wawModalScrim = $("wawModalScrim");
+  const wawModalTitle = $("wawModalTitle");
+  const wawModalText = $("wawModalText");
+  const wawModalCancel = $("wawModalCancel");
+  const wawModalConfirm = $("wawModalConfirm");
+
+  let modalResolver = null;
+
+  function showConfirm(title, text, confirmLabel) {
+    wawModalTitle.textContent = title;
+    wawModalText.textContent = text;
+    wawModalConfirm.textContent = confirmLabel || "Удалить";
+    wawModalScrim.classList.add("open");
+    return new Promise((resolve) => {
+      modalResolver = resolve;
+    });
+  }
+
+  function closeModal(result) {
+    wawModalScrim.classList.remove("open");
+    if (modalResolver) {
+      modalResolver(result);
+      modalResolver = null;
+    }
+  }
+
+  wawModalCancel.addEventListener("click", () => closeModal(false));
+  wawModalConfirm.addEventListener("click", () => closeModal(true));
+  wawModalScrim.addEventListener("click", (e) => {
+    if (e.target === wawModalScrim) closeModal(false);
+  });
+
   /* =========================================================
      MARKDOWN
      ========================================================= */
   function renderMarkdown(el, text, withCaret) {
     const caret = withCaret ? '<span class="stream-caret"></span>' : "";
-
     if (window.marked && window.DOMPurify) {
       const parse = marked.parse || marked;
       const html = parse(text, { breaks: true, gfm: true });
@@ -152,27 +184,83 @@
   /* =========================================================
      CHAT LIST
      ========================================================= */
+  function startRenameChat(chat, titleEl) {
+    const current = chat.title;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "chat-rename-input";
+    input.value = current;
+    input.maxLength = 60;
+
+    titleEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let done = false;
+    function commit(ok) {
+      if (done) return;
+      done = true;
+      const val = input.value.trim();
+      if (ok && val && val !== current) {
+        chat.title = val;
+        save();
+        if (chat.id === state.activeChatId) {
+          topbarTitleEl.textContent = chat.title;
+        }
+      }
+      renderChatList();
+    }
+
+    input.addEventListener("blur", () => commit(true));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); commit(true); }
+      if (e.key === "Escape") { e.preventDefault(); commit(false); }
+    });
+  }
+
   function renderChatList() {
     chatListEl.innerHTML = "";
     state.chats.forEach((chat) => {
       const item = document.createElement("div");
-      item.className =
-        "chat-item" + (chat.id === state.activeChatId ? " active" : "");
+      item.className = "chat-item" + (chat.id === state.activeChatId ? " active" : "");
       item.tabIndex = 0;
       item.setAttribute("role", "button");
 
       const title = document.createElement("span");
       title.className = "title";
       title.textContent = chat.title;
+      title.title = "Двойной тап — переименовать";
+
+      title.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        startRenameChat(chat, title);
+      });
+
+      let lastTap = 0;
+      title.addEventListener("touchend", (e) => {
+        const now = Date.now();
+        if (now - lastTap < 350) {
+          e.preventDefault();
+          e.stopPropagation();
+          startRenameChat(chat, title);
+        }
+        lastTap = now;
+      });
 
       const del = document.createElement("button");
       del.className = "del";
       del.setAttribute("aria-label", "Удалить чат");
       del.innerHTML =
         '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>';
-      del.addEventListener("click", (e) => {
+
+      del.addEventListener("click", async (e) => {
         e.stopPropagation();
-        if (confirm(`Удалить «${chat.title}»?`)) deleteChat(chat.id);
+        const ok = await showConfirm(
+          "Удалить чат?",
+          `«${chat.title}» будет удалён вместе с историей.`,
+          "Удалить"
+        );
+        if (ok) deleteChat(chat.id);
       });
 
       item.appendChild(title);
@@ -224,7 +312,7 @@
   }
 
   /* =========================================================
-     MESSAGE VARIANTS
+     VARIANTS
      ========================================================= */
   function getVariantData(message) {
     return responseVariants.get(message.id);
@@ -260,7 +348,6 @@
     const body = document.createElement("div");
     body.className = "msg-body";
 
-    // Картинка (если есть) — сверху
     if (m.image) {
       const img = document.createElement("img");
       img.src = m.image;
@@ -290,9 +377,6 @@
     return { wrap, body, textEl };
   }
 
-  /* =========================================================
-     MESSAGE ACTIONS
-     ========================================================= */
   function createIcon(path) {
     return `<svg viewBox="0 0 24 24">${path}</svg>`;
   }
@@ -301,18 +385,14 @@
     const actions = document.createElement("div");
     actions.className = "msg-actions";
 
-    /* COPY */
     const copyBtn = document.createElement("button");
     copyBtn.className = "msg-action";
     copyBtn.title = "Скопировать";
     copyBtn.innerHTML = createIcon(
       '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>'
     );
-    copyBtn.addEventListener("click", () =>
-      copyMessage(message, body, copyBtn)
-    );
+    copyBtn.addEventListener("click", () => copyMessage(message, body, copyBtn));
 
-    /* LIKE */
     const likeBtn = document.createElement("button");
     likeBtn.className = "msg-action";
     likeBtn.title = "Нравится";
@@ -320,7 +400,6 @@
       '<path d="M7 10v10H4a2 2 0 01-2-2v-6a2 2 0 012-2h3z"/><path d="M7 20h9.5a2 2 0 001.9-1.4l2-7A2 2 0 0018.5 9H14l.7-3.2A2.3 2.3 0 0012.5 3L7 10"/>'
     );
 
-    /* DISLIKE */
     const dislikeBtn = document.createElement("button");
     dislikeBtn.className = "msg-action";
     dislikeBtn.title = "Не нравится";
@@ -337,7 +416,6 @@
       likeBtn.classList.remove("active-like");
     });
 
-    /* RETRY */
     const retryBtn = document.createElement("button");
     retryBtn.className = "msg-action retry";
     retryBtn.title = "Переписать ответ";
@@ -346,7 +424,6 @@
     );
     retryBtn.addEventListener("click", () => retryMessage(message));
 
-    /* VERSIONS */
     const versions = document.createElement("div");
     versions.className = "msg-versions";
 
@@ -381,7 +458,7 @@
       const data = getVariantData(message);
       if (!data || data.current <= 0) return;
       data.current--;
-      renderVariantInPlace(message, body, wrapFromBody(body));
+      renderVariantInPlace(message, body);
       updateVersionControls();
     });
 
@@ -389,7 +466,7 @@
       const data = getVariantData(message);
       if (!data || data.current >= data.variants.length - 1) return;
       data.current++;
-      renderVariantInPlace(message, body, wrapFromBody(body));
+      renderVariantInPlace(message, body);
       updateVersionControls();
     });
 
@@ -404,11 +481,7 @@
     return actions;
   }
 
-  function wrapFromBody(body) {
-    return body.closest(".msg");
-  }
-
-  function renderVariantInPlace(originalMessage, body, wrap) {
+  function renderVariantInPlace(originalMessage, body) {
     const data = getVariantData(originalMessage);
     if (!data || !data.variants[data.current]) return;
 
@@ -431,23 +504,17 @@
 
     renderMarkdown(textEl, variant.text, false);
     highlightCode(textEl);
-    wrap.dataset.messageId = variant.id || "";
   }
 
-  /* =========================================================
-     COPY
-     ========================================================= */
   async function copyMessage(message, body, button) {
     const data = getVariantData(message);
     const current = data ? data.variants[data.current] : message;
-
     try {
       await navigator.clipboard.writeText(current.text);
       body.classList.remove("copy-flash");
       void body.offsetWidth;
       body.classList.add("copy-flash");
       setTimeout(() => body.classList.remove("copy-flash"), 850);
-
       const old = button.innerHTML;
       button.innerHTML = createIcon('<path d="M5 12l4 4L19 6"/>');
       setTimeout(() => { button.innerHTML = old; }, 1000);
@@ -456,9 +523,6 @@
     }
   }
 
-  /* =========================================================
-     RETRY
-     ========================================================= */
   async function retryMessage(originalMessage) {
     if (isGenerating) return;
 
@@ -479,7 +543,6 @@
     );
     const body = wrap?.querySelector(".msg-body");
     const textEl = wrap?.querySelector(".msg-text");
-
     if (!textEl) {
       isGenerating = false;
       updateSendBtnState();
@@ -506,7 +569,17 @@
       highlightCode(textEl);
       data.current = data.variants.length - 1;
 
-      updateAllVersionControls(originalMessage);
+      const parentActions = body.querySelector(".msg-versions");
+      if (parentActions) {
+        const cnt = parentActions.querySelector(".msg-version-count");
+        const prev = parentActions.querySelector(".msg-version-arrow:first-child");
+        const next = parentActions.querySelector(".msg-version-arrow:last-child");
+        parentActions.style.display = "flex";
+        if (cnt) cnt.textContent = `${data.current + 1}/${data.variants.length}`;
+        if (prev) prev.disabled = data.current <= 0;
+        if (next) next.disabled = data.current >= data.variants.length - 1;
+      }
+
       save();
       scrollThreadToBottom();
     } catch (err) {
@@ -516,31 +589,6 @@
       isGenerating = false;
       updateSendBtnState();
     }
-  }
-
-  function updateAllVersionControls(message) {
-    const wrap = messagesEl.querySelector(
-      `.msg[data-message-id="${message.id}"]`
-    );
-    if (!wrap) return;
-
-    const versions = wrap.querySelector(".msg-versions");
-    if (!versions) return;
-
-    const data = getVariantData(message);
-    if (!data || data.variants.length <= 1) {
-      versions.style.display = "none";
-      return;
-    }
-    versions.style.display = "flex";
-
-    const count = versions.querySelector(".msg-version-count");
-    const prev = versions.querySelector(".msg-version-arrow:first-child");
-    const next = versions.querySelector(".msg-version-arrow:last-child");
-
-    if (count) count.textContent = `${data.current + 1}/${data.variants.length}`;
-    if (prev) prev.disabled = data.current <= 0;
-    if (next) next.disabled = data.current >= data.variants.length - 1;
   }
 
   /* =========================================================
@@ -615,7 +663,6 @@
   function showTyping() {
     brandDot.classList.add("thinking");
     emptyStateEl.style.display = "none";
-
     const wrap = document.createElement("div");
     wrap.className = "msg model";
     wrap.id = "typingRow";
@@ -634,14 +681,13 @@
   }
 
   /* =========================================================
-     IMAGE ATTACH
+     IMAGE
      ========================================================= */
   attachBtn.addEventListener("click", () => fileInput.click());
 
   fileInput.addEventListener("change", () => {
     const file = fileInput.files && fileInput.files[0];
     if (!file) return;
-
     if (!file.type.startsWith("image/")) {
       alert("Можно прикрепить только изображение");
       return;
@@ -650,14 +696,9 @@
       alert("Максимум 5 МБ");
       return;
     }
-
     const reader = new FileReader();
     reader.onload = () => {
-      pendingImage = {
-        dataUrl: reader.result,
-        mimeType: file.type,
-        name: file.name,
-      };
+      pendingImage = { dataUrl: reader.result, mimeType: file.type, name: file.name };
       attachPreviewImg.src = reader.result;
       attachPreview.hidden = false;
       updateSendBtnState();
@@ -690,7 +731,6 @@
   async function sendMessage() {
     const text = messageInput.value.trim();
     const imageToSend = pendingImage;
-
     if ((!text && !imageToSend) || isGenerating) return;
 
     const chat = getActiveChat();
@@ -706,7 +746,6 @@
       createdAt: Date.now(),
     });
 
-    // сброс превью
     pendingImage = null;
     attachPreview.hidden = true;
     attachPreviewImg.src = "";
@@ -745,7 +784,6 @@
     } catch (err) {
       console.error("WAW: reply failed", err);
       hideTyping();
-
       const msg = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         role: "model",
@@ -757,7 +795,6 @@
       };
       chat.messages.push(msg);
       save();
-
       const { wrap, textEl } = buildMessageShell(msg);
       messagesEl.appendChild(wrap);
       ensureVariantData(msg);
@@ -878,8 +915,12 @@
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      closeSettings();
-      closeSidebar();
+      if (wawModalScrim.classList.contains("open")) {
+        closeModal(false);
+      } else {
+        closeSettings();
+        closeSidebar();
+      }
     }
   });
 
@@ -967,7 +1008,6 @@
   accentSwatches.addEventListener("click", (e) => {
     const btn = e.target.closest(".swatch");
     if (!btn) return;
-
     const nextAccent = btn.dataset.accent;
     if (nextAccent === state.settings.accent) return;
 
@@ -1006,8 +1046,14 @@
   /* =========================================================
      WIPE DATA
      ========================================================= */
-  wipeDataBtn.addEventListener("click", () => {
-    if (!confirm("Удалить все чаты и настройки без возможности восстановления?")) return;
+  wipeDataBtn.addEventListener("click", async () => {
+    const ok = await showConfirm(
+      "Удалить всё?",
+      "Все чаты, настройки и персонализация будут удалены без возможности восстановления.",
+      "Удалить всё"
+    );
+    if (!ok) return;
+
     localStorage.removeItem(STORAGE_KEY);
     responseVariants.clear();
     state = defaultState();
@@ -1023,11 +1069,26 @@
   /* =========================================================
      APPLY THEME
      ========================================================= */
+  function resolveTheme() {
+    const t = state.settings.theme;
+    if (t === "system") {
+      return window.matchMedia("(prefers-color-scheme: light)").matches
+        ? "light"
+        : "dark";
+    }
+    return t;
+  }
+
   function applyTheme() {
     document.documentElement.setAttribute("data-accent", state.settings.accent);
-    document.body.classList.toggle("light", state.settings.theme === "light");
+    const resolved = resolveTheme();
+    document.body.classList.toggle("light", resolved === "light");
     themeSegmented.dataset.active = state.settings.theme;
   }
+
+  window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+    if (state.settings.theme === "system") applyTheme();
+  });
 
   /* =========================================================
      PROFILE
@@ -1043,11 +1104,14 @@
      ========================================================= */
   newChatBtn.addEventListener("click", createChat);
 
-  deleteChatBtn.addEventListener("click", () => {
+  deleteChatBtn.addEventListener("click", async () => {
     const chat = getActiveChat();
-    if (confirm(`Удалить «${chat.title}»?`)) {
-      deleteChat(state.activeChatId);
-    }
+    const ok = await showConfirm(
+      "Удалить чат?",
+      `«${chat.title}» будет удалён вместе с историей.`,
+      "Удалить"
+    );
+    if (ok) deleteChat(state.activeChatId);
   });
 
   messageInput.addEventListener("input", () => {
