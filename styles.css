@@ -739,7 +739,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
 }
 
 /* ===========================================================
-   МОБИЛЬНАЯ АДАПТАЦИЯ — отдельный UX под палец
+   МОБИЛЬНАЯ АДАПТАЦИЯ
    =========================================================== */
 @media (max-width: 840px){
 
@@ -748,81 +748,93 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
 
   .only-mobile{ display:flex; }
 
-  /* ---------- Sidebar: полноэкранная панель ---------- */
+  /* ---------- SIDEBAR: выезжает, но не на весь экран ---------- */
   .sidebar{
     position:fixed;
-    top:0; left:0; bottom:0;
-    width:100%;
-    max-width:100%;
+    top:12px;
+    left:12px;
+    bottom:12px;
+    width:min(320px, calc(100vw - 56px));
+    max-width:88vw;
     z-index:21;
-    transform:translateX(-105%);
-    box-shadow:none;
-    padding:
-      calc(20px + env(safe-area-inset-top, 0px))
-      16px
-      calc(20px + env(safe-area-inset-bottom, 0px));
-    background:var(--surface);
-    transition: transform .3s cubic-bezier(.32,.72,.28,1);
-    will-change:transform;
+    border-radius:22px;
+    border:1px solid var(--border);
+    box-shadow:0 30px 80px rgba(0,0,0,0.6);
+    overflow:hidden;
+    padding:20px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+    transform:translateX(calc(-100% - 24px));
+    opacity:0;
+    transition:
+      transform .34s cubic-bezier(.32,.72,.28,1),
+      opacity .25s ease;
+    will-change:transform, opacity;
   }
-  .sidebar.open{ transform:translateX(0); }
+  .sidebar.open{
+    transform:translateX(0);
+    opacity:1;
+  }
 
-  .sidebar-top{ padding:4px 4px 22px; }
+  .sidebar-top{ padding:4px 6px 20px; }
   .brand{ gap:12px; }
-  .brand-mark{ width:36px; height:36px; border-radius:12px; }
+  .brand-mark{ width:34px; height:34px; border-radius:11px; }
   .brand-dot{ width:10px; height:10px; }
-  .brand-name{ font-size:20px; }
+  .brand-name{ font-size:19px; }
 
   .sidebar-top .icon-btn{
-    width:44px; height:44px;
-    border-radius:12px;
+    width:40px; height:40px;
+    border-radius:11px;
     background:var(--surface-2);
   }
 
   .new-chat-btn{
-    padding:14px 16px;
-    border-radius:var(--radius-m);
+    padding:13px 15px;
+    border-radius:14px;
     font-size:15px;
     gap:10px;
-    margin-bottom:18px;
+    margin-bottom:16px;
   }
   .new-chat-btn svg{ width:20px; height:20px; }
 
-  .chat-list{ gap:4px; padding-right:0; }
+  .chat-list{ gap:4px; padding-right:2px; }
   .chat-item{
-    padding:14px;
+    padding:13px 12px;
     border-radius:12px;
     font-size:15px;
-    gap:10px;
+    gap:8px;
   }
   .chat-item .title{ font-size:15px; }
 
   .chat-actions{ opacity:1; gap:4px; }
   .chat-action{
-    width:40px; height:40px;
+    width:38px; height:38px;
     border-radius:10px;
     background:transparent;
   }
   .chat-action svg{ width:18px; height:18px; }
 
-  .sidebar-bottom{ padding-top:16px; margin-top:12px; }
+  .sidebar-bottom{ padding-top:14px; margin-top:10px; }
   .profile-btn{
-    padding:14px;
-    border-radius:var(--radius-m);
+    padding:12px;
+    border-radius:14px;
     background:var(--surface-2);
-    gap:14px;
+    gap:12px;
   }
-  .profile-btn .avatar{ width:44px; height:44px; font-size:16px; }
-  .profile-name{ font-size:15px; }
-  .profile-sub{ font-size:12.5px; }
-  .profile-btn .gear{ width:22px; height:22px; }
+  .profile-btn .avatar{ width:42px; height:42px; font-size:15px; }
+  .profile-name{ font-size:14.5px; }
+  .profile-sub{ font-size:12px; }
+  .profile-btn .gear{ width:20px; height:20px; }
 
-  .sidebar-scrim.open{ display:block; }
+  /* Тёмный скрим с блюром, плавное появление */
+  .sidebar-scrim{
+    background:rgba(6,4,16,0.55);
+    backdrop-filter: blur(6px);
+    transition: opacity .3s ease;
+  }
 
   /* ---------- Topbar ---------- */
-  .topbar{ height:60px; padding:0 14px; gap:12px; }
-  .topbar-title{ font-size:16px; font-weight:600; color:var(--text); }
-  .icon-btn{ width:44px; height:44px; border-radius:12px; }
+  .topbar{ height:58px; padding:0 14px; gap:10px; }
+  .topbar-title{ font-size:15.5px; font-weight:600; color:var(--text); }
+  .icon-btn{ width:42px; height:42px; border-radius:12px; }
   .icon-btn svg{ width:20px; height:20px; }
 
   /* ---------- Messages ---------- */
@@ -878,37 +890,40 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
   .attach-preview{ max-width:200px; border-radius:14px; }
   .attach-remove{ width:32px; height:32px; font-size:20px; }
 
-  /* ---------- Settings: bottom sheet ---------- */
-  .settings-scrim.open{ padding:0; align-items:flex-end; }
+  /* ---------- SETTINGS: карточка по центру ---------- */
+  .settings-scrim.open{
+    padding:16px;
+    align-items:center;
+    justify-content:center;
+  }
   .settings-modal{
     max-width:100%;
-    max-height:92vh;
-    border-radius:24px 24px 0 0;
-    transform:translateY(100%);
+    max-height:calc(100vh - 32px);
+    border-radius:24px;
+    transform:translateY(14px) scale(.97);
+    opacity:0;
+    transition:
+      transform .3s cubic-bezier(.32,.72,.28,1),
+      opacity .25s ease;
+  }
+  .settings-scrim.open .settings-modal{
+    transform:translateY(0) scale(1);
     opacity:1;
-    transition: transform .3s cubic-bezier(.32,.72,.28,1);
-  }
-  .settings-scrim.open .settings-modal{ transform:translateY(0); opacity:1; }
-
-  .settings-modal::before{
-    content:"";
-    display:block;
-    width:40px; height:4px;
-    margin:10px auto 0;
-    border-radius:999px;
-    background:var(--border);
   }
 
-  .settings-header{ padding:12px 18px 16px; align-items:center; }
-  .settings-header h2{ font-size:20px; }
-  .settings-sub{ font-size:13px; }
+  /* убираем «ручку» — это не bottom sheet */
+  .settings-modal::before{ display:none; }
+
+  .settings-header{ padding:20px 20px 16px; align-items:flex-start; }
+  .settings-header h2{ font-size:19px; }
+  .settings-sub{ font-size:12.5px; }
 
   .settings-body{
-    padding:16px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+    padding:18px 18px calc(22px + env(safe-area-inset-bottom, 0px));
     gap:14px;
   }
 
-  .settings-section{ padding:16px; border-radius:var(--radius-m); }
+  .settings-section{ padding:16px; border-radius:16px; }
 
   .field input[type="text"], .field textarea{
     font-size:16px; padding:13px 14px; border-radius:10px;
@@ -921,12 +936,23 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
   .switch-knob{ width:24px; height:24px; }
   .switch[aria-checked="true"] .switch-knob{ transform:translateX(22px); }
 
-  .danger-btn{ padding:14px; font-size:15px; border-radius:10px; }
+  .danger-btn{ padding:14px; font-size:15px; border-radius:12px; }
 
-  /* ---------- Confirm: снизу ---------- */
-  .waw-modal-scrim.open{ padding:16px; align-items:flex-end; }
-  .waw-modal{ border-radius:20px; padding:22px 20px 18px; max-width:100%; transform:translateY(20px); }
-  .waw-modal-scrim.open .waw-modal{ transform:translateY(0); }
+  /* ---------- CONFIRM: карточка по центру ---------- */
+  .waw-modal-scrim.open{
+    padding:20px;
+    align-items:center;
+    justify-content:center;
+  }
+  .waw-modal{
+    border-radius:20px;
+    padding:22px 20px 18px;
+    max-width:min(100%, 400px);
+    transform:scale(.96);
+    opacity:0;
+    transition: transform .25s cubic-bezier(.32,.72,.28,1), opacity .2s ease;
+  }
+  .waw-modal-scrim.open .waw-modal{ transform:scale(1); opacity:1; }
   .waw-modal h3{ font-size:17px; }
   .waw-modal p{ font-size:14.5px; }
   .waw-modal-btn{ padding:12px 18px; font-size:15px; }
@@ -949,5 +975,6 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, .chat-item:fo
   .pill-toggle{ padding:12px; }
   .pill-toggle svg{ width:20px; height:20px; }
 
-  .settings-modal{ max-height:96vh; }
+  .sidebar{ width:min(300px, 90vw); }
+  .settings-modal{ max-height:calc(100vh - 24px); }
 }
