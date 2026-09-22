@@ -2,9 +2,20 @@
   "use strict";
 
   const STORAGE_KEY = "waw_web_state_v1";
-  const API_ENDPOINT =
-    "https://forwaw-ai.ervin-mandarin.workers.dev/chat";
+  const API_ENDPOINT = "https://forwaw-ai.ervin-mandarin.workers.dev/chat";
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+  /* =========================================================
+     ИКОНКИ ПОД АКЦЕНТЫ
+     ========================================================= */
+  const ACCENT_ICONS = {
+    violet: "mainicon2.png",
+    magenta: "mainicon3.png",
+    indigo: "mainicon5.png",
+    pine: "mainicon.png",
+    cosmic: "mainicon6.png",
+    rose: "mainicon4.png",
+  };
 
   /* =========================================================
      STORAGE
@@ -230,8 +241,7 @@
       edit.className = "chat-action edit";
       edit.setAttribute("aria-label", "Переименовать диалог");
       edit.title = "Переименовать";
-      edit.innerHTML =
-        '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
+      edit.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
       edit.addEventListener("click", (e) => {
         e.stopPropagation();
         startRenameChat(chat, title);
@@ -241,8 +251,7 @@
       del.className = "chat-action del";
       del.setAttribute("aria-label", "Удалить диалог");
       del.title = "Удалить";
-      del.innerHTML =
-        '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>';
+      del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>';
       del.addEventListener("click", async (e) => {
         e.stopPropagation();
         const ok = await showConfirm(
@@ -374,24 +383,18 @@
     const copyBtn = document.createElement("button");
     copyBtn.className = "msg-action";
     copyBtn.title = "Скопировать";
-    copyBtn.innerHTML = createIcon(
-      '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>'
-    );
+    copyBtn.innerHTML = createIcon('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>');
     copyBtn.addEventListener("click", () => copyMessage(message, body, copyBtn));
 
     const likeBtn = document.createElement("button");
     likeBtn.className = "msg-action";
     likeBtn.title = "Нравится";
-    likeBtn.innerHTML = createIcon(
-      '<path d="M7 10v10H4a2 2 0 01-2-2v-6a2 2 0 012-2h3z"/><path d="M7 20h9.5a2 2 0 001.9-1.4l2-7A2 2 0 0018.5 9H14l.7-3.2A2.3 2.3 0 0012.5 3L7 10"/>'
-    );
+    likeBtn.innerHTML = createIcon('<path d="M7 10v10H4a2 2 0 01-2-2v-6a2 2 0 012-2h3z"/><path d="M7 20h9.5a2 2 0 001.9-1.4l2-7A2 2 0 0018.5 9H14l.7-3.2A2.3 2.3 0 0012.5 3L7 10"/>');
 
     const dislikeBtn = document.createElement("button");
     dislikeBtn.className = "msg-action";
     dislikeBtn.title = "Не нравится";
-    dislikeBtn.innerHTML = createIcon(
-      '<path d="M7 14V4H4a2 2 0 00-2 2v6a2 2 0 002 2h3z"/><path d="M7 4h9.5a2 2 0 011.9 1.4l2 7A2 2 0 0118.5 15H14l.7 3.2a2.3 2.3 0 01-2.2 2.8L7 14"/>'
-    );
+    dislikeBtn.innerHTML = createIcon('<path d="M7 14V4H4a2 2 0 00-2 2v6a2 2 0 002 2h3z"/><path d="M7 4h9.5a2 2 0 011.9 1.4l2 7A2 2 0 0118.5 15H14l.7 3.2a2.3 2.3 0 01-2.2 2.8L7 14"/>');
 
     likeBtn.addEventListener("click", () => {
       likeBtn.classList.toggle("active-like");
@@ -405,9 +408,7 @@
     const retryBtn = document.createElement("button");
     retryBtn.className = "msg-action retry";
     retryBtn.title = "Переписать ответ";
-    retryBtn.innerHTML = createIcon(
-      '<path d="M20 11a8.1 8.1 0 00-14.9-4L3 10"/><path d="M3 4v6h6"/><path d="M4 13a8.1 8.1 0 0014.9 4L21 14"/><path d="M21 20v-6h-6"/>'
-    );
+    retryBtn.innerHTML = createIcon('<path d="M20 11a8.1 8.1 0 00-14.9-4L3 10"/><path d="M3 4v6h6"/><path d="M4 13a8.1 8.1 0 0014.9 4L21 14"/><path d="M21 20v-6h-6"/>');
     retryBtn.addEventListener("click", () => retryMessage(message));
 
     const versions = document.createElement("div");
@@ -1058,11 +1059,25 @@
     return t;
   }
 
+  function updateLogo() {
+    const logo = document.getElementById("emptyLogo");
+    if (logo) {
+      const src = ACCENT_ICONS[state.settings.accent] || ACCENT_ICONS.violet;
+      if (logo.getAttribute("src") !== src) logo.setAttribute("src", src);
+    }
+    const fav = document.querySelector('link[rel="icon"]');
+    if (fav) {
+      const src = ACCENT_ICONS[state.settings.accent] || ACCENT_ICONS.violet;
+      if (fav.getAttribute("href") !== src) fav.setAttribute("href", src);
+    }
+  }
+
   function applyTheme() {
     document.documentElement.setAttribute("data-accent", state.settings.accent);
     const resolved = resolveTheme();
     document.body.classList.toggle("light", resolved === "light");
     themeSegmented.dataset.active = state.settings.theme;
+    updateLogo();
   }
 
   window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
