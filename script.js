@@ -29,7 +29,7 @@
   function makeChat(index) {
     return {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      title: `Чат ${index}`,
+      title: `Диалог ${index}`,
       messages: [],
     };
   }
@@ -102,8 +102,8 @@
   const attachRemove = $("attachRemove");
 
   const settingsBtn = $("settingsBtn");
-  const settingsPanel = $("settingsPanel");
   const settingsScrim = $("settingsScrim");
+  const settingsPanel = $("settingsPanel");
   const closeSettingsBtn = $("closeSettingsBtn");
 
   const displayNameInput = $("displayNameInput");
@@ -172,7 +172,7 @@
   }
 
   /* =========================================================
-     RENAME CHAT
+     RENAME
      ========================================================= */
   function startRenameChat(chat, titleEl) {
     const current = chat.title;
@@ -228,7 +228,7 @@
 
       const edit = document.createElement("button");
       edit.className = "chat-action edit";
-      edit.setAttribute("aria-label", "Переименовать чат");
+      edit.setAttribute("aria-label", "Переименовать диалог");
       edit.title = "Переименовать";
       edit.innerHTML =
         '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
@@ -239,14 +239,14 @@
 
       const del = document.createElement("button");
       del.className = "chat-action del";
-      del.setAttribute("aria-label", "Удалить чат");
+      del.setAttribute("aria-label", "Удалить диалог");
       del.title = "Удалить";
       del.innerHTML =
         '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>';
       del.addEventListener("click", async (e) => {
         e.stopPropagation();
         const ok = await showConfirm(
-          "Удалить чат?",
+          "Удалить диалог?",
           `«${chat.title}» будет удалён вместе с историей.`,
           "Удалить"
         );
@@ -307,9 +307,7 @@
   /* =========================================================
      VARIANTS
      ========================================================= */
-  function getVariantData(message) {
-    return responseVariants.get(message.id);
-  }
+  function getVariantData(message) { return responseVariants.get(message.id); }
 
   function ensureVariantData(message) {
     if (!message.id) {
@@ -333,10 +331,7 @@
   function buildMessageShell(m) {
     const wrap = document.createElement("div");
     wrap.className = "msg " + (m.role === "user" ? "user" : "model");
-
-    if (m.role === "model") {
-      wrap.dataset.messageId = m.id || "";
-    }
+    if (m.role === "model") wrap.dataset.messageId = m.id || "";
 
     const body = document.createElement("div");
     body.className = "msg-body";
@@ -370,9 +365,7 @@
     return { wrap, body, textEl };
   }
 
-  function createIcon(path) {
-    return `<svg viewBox="0 0 24 24">${path}</svg>`;
-  }
+  function createIcon(path) { return `<svg viewBox="0 0 24 24">${path}</svg>`; }
 
   function createMessageActions(message, body) {
     const actions = document.createElement("div");
@@ -466,7 +459,6 @@
     actions.appendChild(versions);
 
     setTimeout(updateVersionControls, 0);
-
     return actions;
   }
 
@@ -600,9 +592,7 @@
   }
 
   function scrollThreadToBottom() {
-    requestAnimationFrame(() => {
-      threadEl.scrollTop = threadEl.scrollHeight;
-    });
+    requestAnimationFrame(() => { threadEl.scrollTop = threadEl.scrollHeight; });
   }
 
   function streamText(textEl, fullText) {
@@ -621,9 +611,8 @@
           lastRender = now;
           threadEl.scrollTop = threadEl.scrollHeight;
         }
-        if (p < 1) {
-          requestAnimationFrame(tick);
-        } else {
+        if (p < 1) requestAnimationFrame(tick);
+        else {
           renderMarkdown(textEl, fullText, false);
           highlightCode(textEl);
           threadEl.scrollTop = threadEl.scrollHeight;
@@ -709,7 +698,7 @@
 
     const chat = getActiveChat();
 
-    if (chat.messages.length === 0 && chat.title.startsWith("Чат")) {
+    if (chat.messages.length === 0 && chat.title.startsWith("Диалог")) {
       chat.title = text.slice(0, 32) + (text.length > 32 ? "…" : "");
     }
 
@@ -806,11 +795,8 @@
     });
 
     let data = null;
-    try {
-      data = await res.json();
-    } catch (e) {
-      throw new Error(`Worker вернул не JSON (HTTP ${res.status})`);
-    }
+    try { data = await res.json(); }
+    catch (e) { throw new Error(`Worker вернул не JSON (HTTP ${res.status})`); }
 
     if (!res.ok || !data.ok) {
       throw new Error(data.error || `Worker вернул HTTP ${res.status}`);
@@ -869,30 +855,31 @@
   sidebarScrim.addEventListener("click", closeSidebar);
 
   /* =========================================================
-     SETTINGS
+     SETTINGS MODAL
      ========================================================= */
   function openSettings() {
     populateSettingsForm();
-    settingsPanel.classList.add("open");
-    settingsPanel.setAttribute("aria-hidden", "false");
     settingsScrim.classList.add("open");
+    settingsPanel.setAttribute("aria-hidden", "false");
   }
   function closeSettings() {
-    settingsPanel.classList.remove("open");
-    settingsPanel.setAttribute("aria-hidden", "true");
     settingsScrim.classList.remove("open");
+    settingsPanel.setAttribute("aria-hidden", "true");
   }
 
   settingsBtn.addEventListener("click", openSettings);
   closeSettingsBtn.addEventListener("click", closeSettings);
-  settingsScrim.addEventListener("click", closeSettings);
+  settingsScrim.addEventListener("click", (e) => {
+    if (e.target === settingsScrim) closeSettings();
+  });
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (wawModalScrim.classList.contains("open")) {
         closeModal(false);
-      } else {
+      } else if (settingsScrim.classList.contains("open")) {
         closeSettings();
+      } else {
         closeSidebar();
       }
     }
@@ -948,11 +935,7 @@
     apply();
     if (!rect) return;
     const newBg = getComputedStyle(document.body).backgroundColor;
-    createThemeRipple(
-      rect.left + rect.width / 2,
-      rect.top + rect.height / 2,
-      newBg
-    );
+    createThemeRipple(rect.left + rect.width / 2, rect.top + rect.height / 2, newBg);
   }
 
   themeSegmented.addEventListener("click", (e) => {
@@ -983,11 +966,7 @@
 
     const newAccent = getComputedStyle(document.documentElement)
       .getPropertyValue("--accent");
-    createThemeRipple(
-      rect.left + rect.width / 2,
-      rect.top + rect.height / 2,
-      newAccent
-    );
+    createThemeRipple(rect.left + rect.width / 2, rect.top + rect.height / 2, newAccent);
   });
 
   reasoningDefaultSwitch.addEventListener("click", () => {
@@ -1007,7 +986,7 @@
   wipeDataBtn.addEventListener("click", async () => {
     const ok = await showConfirm(
       "Удалить всё?",
-      "Все чаты, настройки и персонализация будут удалены без возможности восстановления.",
+      "Все диалоги, настройки и персонализация будут удалены без возможности восстановления.",
       "Удалить всё"
     );
     if (!ok) return;
@@ -1056,7 +1035,7 @@
   deleteChatBtn.addEventListener("click", async () => {
     const chat = getActiveChat();
     const ok = await showConfirm(
-      "Удалить чат?",
+      "Удалить диалог?",
       `«${chat.title}» будет удалён вместе с историей.`,
       "Удалить"
     );
