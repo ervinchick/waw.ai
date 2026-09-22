@@ -854,23 +854,15 @@
     `;
 
     try {
-      // ВАЖНО: строим историю ТОЛЬКО до переписываемого ответа,
-      // чтобы последним ходом был user, а не model.
-      // Это обходит валидацию Gemini 3.6 Flash
-      // ("pre-filling model turns больше не поддерживается").
-      const historyUpToRetry = chat.messages
-        .slice(0, index)
-        .filter((m) => m.text)
-        .map((m) => ({
-          role:
-            m.role === "model"
-              ? "assistant"
-              : "user",
-          text: m.text,
-        }));
-
+      // IMPORTANT: pass only the messages *before* the answer being
+      // retried (and anything after it), not the whole chat. Sending
+      // the old model answer as the last turn makes Gemini 3.x reject
+      // the request with a 400 ("model" can no longer be the last
+      // non-empty turn in the request).
       const result =
-        await getReply(historyUpToRetry);
+        await getReply(
+          chat.messages.slice(0, index)
+        );
 
       const variant = {
         id:
@@ -894,13 +886,6 @@
 
       const data =
         getVariantData(originalMessage);
-
-      // Обновляем сам объект сообщения в истории чата,
-      // чтобы сохранённый чат соответствовал показанному варианту.
-      Object.assign(originalMessage, {
-        text: variant.text,
-        reasoning: variant.reasoning,
-      });
 
       renderMarkdown(
         textEl,
@@ -1321,7 +1306,11 @@
         role: "model",
 
         text:
-          "не удалось получить ответ. попробуй ещё раз чуть позже",
+          "не удалось получить ответ (" +
+          (err && err.message
+            ? err.message
+            : "неизвестная ошибка") +
+          "). попробуй ещё раз чуть позже",
 
         createdAt: Date.now(),
       };
@@ -1358,49 +1347,17 @@
      API
      ========================================================= */
 
-  function buildSystemPrompt() {
-    const parts = [
-      "Ты — WAW, дружелюбный ИИ-ассистент. Отвечай на языке пользователя, используй Markdown: заголовки, списки, **жирный**, код в ```блоках``` где уместно.",
-    ];
+  async function getReply(source) {
+    // `source` is either a full chat object ({messages: [...]}) or a
+    // plain array of message objects (used by retryMessage, which
+    // needs to send only the messages *before* the answer being
+    // regenerated).
+    const chatMessages = Array.isArray(source)
+      ? source
+      : source.messages;
 
-    if (
-      state.settings
-        .personalInstruction
-    ) {
-      parts.push(
-        "Персональная инструкция пользователя: " +
-        state.settings
-          .personalInstruction
-      );
-    }
-
-    if (roleplayOn) {
-      parts.push(
-        "Стиль: живой, образный, с лёгкой эмоциональной окраской, как разговор с хорошим другом."
-      );
-    }
-
-    if (reasoningOn) {
-      parts.push(
-        "Перед ответом напиши краткое рассуждение (1–2 предложения) в формате «Рассуждение: …», затем сам ответ после слова «Ответ: »."
-      );
-    }
-
-    return parts.join("\n");
-  }
-
-  /**
-   * Отправляет запрос в воркер.
-   * @param {Array<{role:string,text:string}>|object} input
-   *   либо готовый массив history, либо объект чата.
-   */
-  async function getReply(input) {
-    let history;
-
-    if (Array.isArray(input)) {
-      history = input;
-    } else {
-      history = input.messages
+    const history =
+      chatMessages
         .filter((m) => m.text)
         .map((m) => ({
           role:
@@ -1410,18 +1367,6 @@
 
           text: m.text,
         }));
-    }
-
-    // Нормализуем хвост истории: последним ходом
-    // обязательно должен быть пользователь,
-    // иначе Gemini 3.6 Flash возвращает 400.
-    history = trimTrailingAssistantTurns(history);
-
-    if (history.length === 0) {
-      throw new Error(
-        "Нет истории для запроса"
-      );
-    }
 
     const res =
       await fetch(
@@ -1469,24 +1414,6 @@
       data.answer ||
         "пустой ответ"
     );
-  }
-
-  /**
-   * Убирает хвостовые ходы ассистента, чтобы
-   * последним сообщением в истории был user.
-   */
-  function trimTrailingAssistantTurns(history) {
-    const copy = history.slice();
-
-    while (
-      copy.length > 0 &&
-      copy[copy.length - 1].role ===
-        "assistant"
-    ) {
-      copy.pop();
-    }
-
-    return copy;
   }
 
   function parseReasoning(raw) {
