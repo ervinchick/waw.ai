@@ -144,6 +144,7 @@
         <div class="segmented" id="themeSegmented" role="tablist">
           <button type="button" data-theme="dark" role="tab">Тёмная</button>
           <button type="button" data-theme="light" role="tab">Светлая</button>
+          <button type="button" data-theme="system" role="tab">Системная</button>
         </div>
       </label>
       <label class="field">
@@ -152,6 +153,8 @@
           <button class="swatch" data-accent="violet" style="--sw:#8B6BFF" aria-label="Фиолетовый"></button>
           <button class="swatch" data-accent="magenta" style="--sw:#C266E0" aria-label="Пурпурный"></button>
           <button class="swatch" data-accent="indigo" style="--sw:#6E7BFF" aria-label="Индиго"></button>
+          <button class="swatch" data-accent="pine" style="--sw:#2E9E6B" aria-label="Хвойный"></button>
+          <button class="swatch" data-accent="cosmic" style="--sw:#3D6BFF" aria-label="Космический синий"></button>
           <button class="swatch" data-accent="rose" style="--sw:#E06691" aria-label="Розовый"></button>
         </div>
       </label>
@@ -182,6 +185,17 @@
 
   </div>
 </aside>
+
+<div class="waw-modal-scrim" id="wawModalScrim">
+  <div class="waw-modal" id="wawModal">
+    <h3 id="wawModalTitle">Подтверждение</h3>
+    <p id="wawModalText"></p>
+    <div class="waw-modal-actions">
+      <button class="waw-modal-btn" id="wawModalCancel">Отмена</button>
+      <button class="waw-modal-btn danger" id="wawModalConfirm">Удалить</button>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.5/purify.min.js"></script>
