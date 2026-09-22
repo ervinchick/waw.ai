@@ -32,7 +32,7 @@
 
     <button class="new-chat-btn" id="newChatBtn">
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-      <span>Новый чат</span>
+      <span>Новый диалог</span>
     </button>
 
     <div class="chat-list" id="chatList"></div>
@@ -59,8 +59,8 @@
       <button class="icon-btn only-mobile" id="openSidebarBtn" aria-label="Открыть панель">
         <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
-      <div class="topbar-title" id="topbarTitle">Чат 1</div>
-      <button class="icon-btn" id="deleteChatBtn" title="Удалить чат" aria-label="Удалить чат">
+      <div class="topbar-title" id="topbarTitle">Диалог 1</div>
+      <button class="icon-btn" id="deleteChatBtn" title="Удалить диалог" aria-label="Удалить диалог">
         <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>
       </button>
     </header>
@@ -112,80 +112,86 @@
   </main>
 </div>
 
-<div class="settings-scrim" id="settingsScrim"></div>
-<aside class="settings-panel" id="settingsPanel" aria-hidden="true">
-  <div class="settings-header">
-    <h2>Настройки</h2>
-    <button class="icon-btn" id="closeSettingsBtn" aria-label="Закрыть">
-      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
-    </button>
+<!-- ============ SETTINGS (BIG MODAL) ============ -->
+<div class="settings-scrim" id="settingsScrim">
+  <div class="settings-modal" id="settingsPanel" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="settings-header">
+      <div>
+        <h2>Настройки</h2>
+        <p class="settings-sub">Персонализация и внешний вид WAW</p>
+      </div>
+      <button class="icon-btn" id="closeSettingsBtn" aria-label="Закрыть">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="settings-body">
+
+      <section class="settings-section">
+        <h3>Персонализация</h3>
+        <label class="field">
+          <span class="field-label">Как к тебе обращаться</span>
+          <input type="text" id="displayNameInput" placeholder="Ты" maxlength="30">
+        </label>
+        <label class="field">
+          <span class="field-label">Персональная инструкция</span>
+          <span class="field-hint">Как WAW должен общаться лично с тобой. Например: «отвечай короче и без лишних вступлений».</span>
+          <textarea id="personalInstructionInput" rows="4" maxlength="2000" placeholder="Например: отвечай кратко, чаще используй списки..."></textarea>
+          <span class="field-counter"><span id="piCount">0</span>/2000</span>
+        </label>
+      </section>
+
+      <section class="settings-section">
+        <h3>Внешний вид</h3>
+        <label class="field">
+          <span class="field-label">Тема</span>
+          <div class="segmented" id="themeSegmented" role="tablist">
+            <button type="button" data-theme="dark" role="tab">Тёмная</button>
+            <button type="button" data-theme="light" role="tab">Светлая</button>
+            <button type="button" data-theme="system" role="tab">Системная</button>
+          </div>
+        </label>
+        <label class="field">
+          <span class="field-label">Акцентный цвет</span>
+          <div class="swatch-row" id="accentSwatches">
+            <button class="swatch" data-accent="violet" style="--sw:#8B6BFF" aria-label="Фиолетовый"></button>
+            <button class="swatch" data-accent="magenta" style="--sw:#C266E0" aria-label="Пурпурный"></button>
+            <button class="swatch" data-accent="indigo" style="--sw:#6E7BFF" aria-label="Индиго"></button>
+            <button class="swatch" data-accent="pine" style="--sw:#2E9E6B" aria-label="Хвойный"></button>
+            <button class="swatch" data-accent="cosmic" style="--sw:#3D6BFF" aria-label="Космический синий"></button>
+            <button class="swatch" data-accent="rose" style="--sw:#E06691" aria-label="Розовый"></button>
+          </div>
+        </label>
+      </section>
+
+      <section class="settings-section">
+        <h3>Поведение</h3>
+        <label class="field row">
+          <span>
+            <span class="field-label">Рассуждения по умолчанию</span>
+            <span class="field-hint">Показывать краткое обоснование перед ответом</span>
+          </span>
+          <button class="switch" id="reasoningDefaultSwitch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
+        </label>
+        <label class="field row">
+          <span>
+            <span class="field-label">Roleplay по умолчанию</span>
+            <span class="field-hint">Более живой, образный стиль ответов</span>
+          </span>
+          <button class="switch" id="roleplayDefaultSwitch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
+        </label>
+      </section>
+
+      <section class="settings-section danger-zone">
+        <h3>Данные</h3>
+        <button class="danger-btn" id="wipeDataBtn">Удалить все диалоги и настройки</button>
+      </section>
+
+    </div>
   </div>
+</div>
 
-  <div class="settings-body">
-
-    <section class="settings-section">
-      <h3>Персонализация</h3>
-      <label class="field">
-        <span class="field-label">Как к тебе обращаться</span>
-        <input type="text" id="displayNameInput" placeholder="Ты" maxlength="30">
-      </label>
-      <label class="field">
-        <span class="field-label">Персональная инструкция</span>
-        <span class="field-hint">Как WAW должен общаться лично с тобой. Например: «отвечай короче и без лишних вступлений».</span>
-        <textarea id="personalInstructionInput" rows="4" maxlength="2000" placeholder="Например: отвечай кратко, чаще используй списки..."></textarea>
-        <span class="field-counter"><span id="piCount">0</span>/2000</span>
-      </label>
-    </section>
-
-    <section class="settings-section">
-      <h3>Внешний вид</h3>
-      <label class="field">
-        <span class="field-label">Тема</span>
-        <div class="segmented" id="themeSegmented" role="tablist">
-          <button type="button" data-theme="dark" role="tab">Тёмная</button>
-          <button type="button" data-theme="light" role="tab">Светлая</button>
-          <button type="button" data-theme="system" role="tab">Системная</button>
-        </div>
-      </label>
-      <label class="field">
-        <span class="field-label">Акцентный цвет</span>
-        <div class="swatch-row" id="accentSwatches">
-          <button class="swatch" data-accent="violet" style="--sw:#8B6BFF" aria-label="Фиолетовый"></button>
-          <button class="swatch" data-accent="magenta" style="--sw:#C266E0" aria-label="Пурпурный"></button>
-          <button class="swatch" data-accent="indigo" style="--sw:#6E7BFF" aria-label="Индиго"></button>
-          <button class="swatch" data-accent="pine" style="--sw:#2E9E6B" aria-label="Хвойный"></button>
-          <button class="swatch" data-accent="cosmic" style="--sw:#3D6BFF" aria-label="Космический синий"></button>
-          <button class="swatch" data-accent="rose" style="--sw:#E06691" aria-label="Розовый"></button>
-        </div>
-      </label>
-    </section>
-
-    <section class="settings-section">
-      <h3>Поведение</h3>
-      <label class="field row">
-        <span>
-          <span class="field-label">Рассуждения по умолчанию</span>
-          <span class="field-hint">Показывать краткое обоснование перед ответом</span>
-        </span>
-        <button class="switch" id="reasoningDefaultSwitch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
-      </label>
-      <label class="field row">
-        <span>
-          <span class="field-label">Roleplay по умолчанию</span>
-          <span class="field-hint">Более живой, образный стиль ответов</span>
-        </span>
-        <button class="switch" id="roleplayDefaultSwitch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
-      </label>
-    </section>
-
-    <section class="settings-section danger-zone">
-      <h3>Данные</h3>
-      <button class="danger-btn" id="wipeDataBtn">Удалить все чаты и настройки</button>
-    </section>
-
-  </div>
-</aside>
-
+<!-- ============ CONFIRM MODAL ============ -->
 <div class="waw-modal-scrim" id="wawModalScrim">
   <div class="waw-modal" id="wawModal">
     <h3 id="wawModalTitle">Подтверждение</h3>
@@ -202,4 +208,4 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="script.js"></script>
 </body>
-</html> 
+</html>
