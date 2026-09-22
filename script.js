@@ -581,11 +581,11 @@
     emptyStateEl.style.display = "none";
 
     chat.messages.forEach((m) => {
+      if (m.role === "model") ensureVariantData(m);
       const { wrap, textEl } = buildMessageShell(m);
       renderMarkdown(textEl, m.text, false);
       highlightCode(textEl);
       messagesEl.appendChild(wrap);
-      if (m.role === "model") ensureVariantData(m);
     });
 
     scrollThreadToBottom();
@@ -1066,7 +1066,7 @@
   setToggle(reasoningToggle, reasoningOn);
   setToggle(roleplayToggle, roleplayOn);
   renderAll();
-    updateSendBtnState();
+  updateSendBtnState();
 
   /* =========================================================
      MOBILE: свайп-закрытие сайдбара
