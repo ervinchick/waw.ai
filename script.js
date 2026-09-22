@@ -1066,5 +1066,54 @@
   setToggle(reasoningToggle, reasoningOn);
   setToggle(roleplayToggle, roleplayOn);
   renderAll();
-  updateSendBtnState();
+    updateSendBtnState();
+
+  /* =========================================================
+     MOBILE: свайп-закрытие сайдбара
+     ========================================================= */
+  (function initSwipeClose() {
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+
+    sidebarEl.addEventListener("touchstart", (e) => {
+      if (!sidebarEl.classList.contains("open")) return;
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      tracking = true;
+    }, { passive: true });
+
+    sidebarEl.addEventListener("touchmove", (e) => {
+      if (!tracking) return;
+      const t = e.touches[0];
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+      if (Math.abs(dx) < Math.abs(dy)) return; // вертикальный скролл
+      if (dx < -50) {
+        tracking = false;
+        closeSidebar();
+      }
+    }, { passive: true });
+
+    sidebarEl.addEventListener("touchend", () => {
+      tracking = false;
+    }, { passive: true });
+  })();
+
+  /* =========================================================
+     MOBILE: тактильная отдача (если поддерживается)
+     ========================================================= */
+  function haptic(ms) {
+    if (navigator.vibrate) {
+      try { navigator.vibrate(ms); } catch (e) {}
+    }
+  }
+
+  document.addEventListener("click", (e) => {
+    const target = e.target.closest(
+      ".chat-action, .msg-action, .pill-toggle, .swatch, .segmented button, .icon-btn, .send-btn, .new-chat-btn, .waw-modal-btn, .danger-btn"
+    );
+    if (target) haptic(10);
+  }, true);
 })();
