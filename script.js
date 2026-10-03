@@ -3,11 +3,9 @@
 
   const STORAGE_KEY = "waw_web_state_v1";
   const API_ENDPOINT = "https://forwaw-ai.ervin-mandarin.workers.dev/chat";
-  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // исходник; перед сохранением сжимаем
+  const MAX_IMAGE_SIDE = 1280;
 
-  /* =========================================================
-     ИКОНКИ ПОД АКЦЕНТЫ
-     ========================================================= */
   const ACCENT_ICONS = {
     violet: "mainicon2.png",
     magenta: "mainicon3.png",
@@ -17,6 +15,8 @@
     rose: "mainicon4.png",
   };
 
+  const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
   /* =========================================================
      STORAGE
      ========================================================= */
@@ -25,10 +25,16 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        parsed.settings = Object.assign(
-          defaultState().settings,
-          parsed.settings || {}
-        );
+        if (!parsed || !Array.isArray(parsed.chats) || parsed.chats.length === 0) {
+          return null;
+        }
+        parsed.settings = Object.assign(defaultState().settings, parsed.settings || {});
+        if (!parsed.chats.some((c) => c.id === parsed.activeChatId)) {
+          parsed.activeChatId = parsed.chats[0].id;
+        }
+        parsed.chats.forEach((c) => {
+          if (!Array.isArray(c.messages)) c.messages = [];
+        });
         return parsed;
       }
     } catch (e) {
@@ -38,11 +44,7 @@
   }
 
   function makeChat(index) {
-    return {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      title: `Диалог ${index}`,
-      messages: [],
-    };
+    return { id: uid(), title: `Диалог ${index}`, messages: [] };
   }
 
   function defaultState() {
@@ -65,15 +67,26 @@
   let reasoningOn = state.settings.reasoningDefault;
   let roleplayOn = state.settings.roleplayDefault;
   let isGenerating = false;
+  let typingChatId = null;
   let pendingImage = null;
-
-  const responseVariants = new Map();
 
   function save() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
-      console.warn("WAW: failed to persist state", e);
+      // localStorage переполнен (обычно из-за картинок) — выкидываем старые картинки
+      try {
+        const active = getActiveChat();
+        const keep = active.messages[active.messages.length - 1];
+        state.chats.forEach((c) =>
+          c.messages.forEach((m) => {
+            if (m.image && m !== keep) m.image = null;
+          })
+        );
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (e2) {
+        console.warn("WAW: failed to persist state", e2);
+      }
     }
   }
 
@@ -164,12 +177,22 @@
   /* =========================================================
      MARKDOWN
      ========================================================= */
+  if (window.DOMPurify) {
+    // ссылки из ответов открываем в новой вкладке
+    DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+      if (node.tagName === "A") {
+        node.setAttribute("target", "_blank");
+        node.setAttribute("rel", "noopener noreferrer");
+      }
+    });
+  }
+
   function renderMarkdown(el, text, withCaret) {
     const caret = withCaret ? '<span class="stream-caret"></span>' : "";
     if (window.marked && window.DOMPurify) {
       const parse = marked.parse || marked;
       const html = parse(text, { breaks: true, gfm: true });
-      el.innerHTML = DOMPurify.sanitize(html) + caret;
+      el.innerHTML = DOMPurify.sanitize(html, { ADD_ATTR: ["target"] }) + caret;
     } else {
       el.textContent = text + (withCaret ? "▌" : "");
     }
@@ -212,11 +235,14 @@
       renderChatList();
     }
 
-    input.addEventListener("blur", () => commit(true));
+    // клики и клавиши внутри поля не должны всплывать в .chat-item
+    input.addEventListener("click", (e) => e.stopPropagation());
     input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
       if (e.key === "Enter") { e.preventDefault(); commit(true); }
       if (e.key === "Escape") { e.preventDefault(); commit(false); }
     });
+    input.addEventListener("blur", () => commit(true));
   }
 
   /* =========================================================
@@ -270,6 +296,7 @@
 
       item.addEventListener("click", () => selectChat(chat.id));
       item.addEventListener("keydown", (e) => {
+        if (e.target !== item) return; // не перехватываем ввод в поле переименования
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           selectChat(chat.id);
@@ -314,24 +341,23 @@
   }
 
   /* =========================================================
-     VARIANTS
+     VARIANTS (хранятся прямо в сообщении, переживают перезагрузку)
+     message.text / message.reasoning всегда = текущий вариант
      ========================================================= */
-  function getVariantData(message) { return responseVariants.get(message.id); }
-
-  function ensureVariantData(message) {
-    if (!message.id) {
-      message.id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  function ensureVariants(m) {
+    if (!Array.isArray(m.variants) || m.variants.length === 0) {
+      m.variants = [{ text: m.text, reasoning: m.reasoning }];
+      m.vIndex = 0;
     }
-    if (!responseVariants.has(message.id)) {
-      responseVariants.set(message.id, { variants: [message], current: 0 });
-    }
-    return responseVariants.get(message.id);
+    if (typeof m.vIndex !== "number") m.vIndex = m.variants.length - 1;
+    return m;
   }
 
-  function addVariant(message, variant) {
-    const data = ensureVariantData(message);
-    data.variants.push(variant);
-    data.current = data.variants.length - 1;
+  function setVariant(m, i) {
+    ensureVariants(m);
+    m.vIndex = i;
+    m.text = m.variants[i].text;
+    m.reasoning = m.variants[i].reasoning;
   }
 
   /* =========================================================
@@ -367,8 +393,7 @@
     wrap.appendChild(body);
 
     if (m.role === "model") {
-      const actions = createMessageActions(m, body);
-      body.appendChild(actions);
+      body.appendChild(createMessageActions(m, body));
     }
 
     return { wrap, body, textEl };
@@ -426,32 +451,32 @@
     versions.appendChild(nextBtn);
 
     function updateVersionControls() {
-      const data = getVariantData(message);
-      if (!data || data.variants.length <= 1) {
+      const total = message.variants ? message.variants.length : 1;
+      if (total <= 1) {
         versions.style.display = "none";
         return;
       }
+      const cur = message.vIndex ?? total - 1;
       versions.style.display = "flex";
-      count.textContent = `${data.current + 1}/${data.variants.length}`;
-      prevBtn.disabled = data.current <= 0;
-      nextBtn.disabled = data.current >= data.variants.length - 1;
+      count.textContent = `${cur + 1}/${total}`;
+      prevBtn.disabled = cur <= 0;
+      nextBtn.disabled = cur >= total - 1;
     }
 
-    prevBtn.addEventListener("click", () => {
-      const data = getVariantData(message);
-      if (!data || data.current <= 0) return;
-      data.current--;
+    function shift(delta) {
+      ensureVariants(message);
+      const next = message.vIndex + delta;
+      if (next < 0 || next >= message.variants.length) return;
+      setVariant(message, next);
+      save();
       renderVariantInPlace(message, body);
       updateVersionControls();
-    });
+    }
 
-    nextBtn.addEventListener("click", () => {
-      const data = getVariantData(message);
-      if (!data || data.current >= data.variants.length - 1) return;
-      data.current++;
-      renderVariantInPlace(message, body);
-      updateVersionControls();
-    });
+    prevBtn.addEventListener("click", () => shift(-1));
+    nextBtn.addEventListener("click", () => shift(1));
+
+    body._updateVersions = updateVersionControls;
 
     actions.appendChild(copyBtn);
     actions.appendChild(likeBtn);
@@ -459,39 +484,33 @@
     actions.appendChild(retryBtn);
     actions.appendChild(versions);
 
-    setTimeout(updateVersionControls, 0);
+    updateVersionControls();
     return actions;
   }
 
-  function renderVariantInPlace(originalMessage, body) {
-    const data = getVariantData(originalMessage);
-    if (!data || !data.variants[data.current]) return;
-    const variant = data.variants[data.current];
+  function renderVariantInPlace(message, body) {
     const textEl = body.querySelector(".msg-text");
     if (!textEl) return;
 
-    if (variant.reasoning) {
-      let reasoning = body.querySelector(".reasoning-block");
+    let reasoning = body.querySelector(".reasoning-block");
+    if (message.reasoning) {
       if (!reasoning) {
         reasoning = document.createElement("div");
         reasoning.className = "reasoning-block";
         body.insertBefore(reasoning, textEl);
       }
-      reasoning.textContent = variant.reasoning;
-    } else {
-      const reasoning = body.querySelector(".reasoning-block");
-      if (reasoning) reasoning.remove();
+      reasoning.textContent = message.reasoning;
+    } else if (reasoning) {
+      reasoning.remove();
     }
 
-    renderMarkdown(textEl, variant.text, false);
+    renderMarkdown(textEl, message.text, false);
     highlightCode(textEl);
   }
 
   async function copyMessage(message, body, button) {
-    const data = getVariantData(message);
-    const current = data ? data.variants[data.current] : message;
     try {
-      await navigator.clipboard.writeText(current.text);
+      await navigator.clipboard.writeText(message.text);
       body.classList.remove("copy-flash");
       void body.offsetWidth;
       body.classList.add("copy-flash");
@@ -510,60 +529,46 @@
     const index = chat.messages.findIndex((m) => m.id === originalMessage.id);
     if (index === -1) return;
 
-    const previousUser = [...chat.messages].slice(0, index).reverse().find(
-      (m) => m.role === "user"
-    );
-    if (!previousUser) return;
-
-    isGenerating = true;
-    updateSendBtnState();
+    const hasUser = chat.messages.slice(0, index).some((m) => m.role === "user");
+    if (!hasUser) return;
 
     const wrap = messagesEl.querySelector(
       `.msg[data-message-id="${originalMessage.id}"]`
     );
-    const body = wrap?.querySelector(".msg-body");
-    const textEl = wrap?.querySelector(".msg-text");
-    if (!textEl) {
-      isGenerating = false;
-      updateSendBtnState();
-      return;
-    }
+    const body = wrap && wrap.querySelector(".msg-body");
+    const textEl = wrap && wrap.querySelector(".msg-text");
+    if (!body || !textEl) return;
+
+    isGenerating = true;
+    updateSendBtnState();
 
     textEl.innerHTML = `<div class="typing"><span></span><span></span><span></span></div>`;
 
     try {
       const result = await getReply(chat.messages.slice(0, index), null);
-      const variant = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        role: "model",
-        text: result.answer,
-        reasoning: result.reasoning || undefined,
-        createdAt: Date.now(),
-      };
+      const variant = { text: result.answer, reasoning: result.reasoning || undefined };
 
-      addVariant(originalMessage, variant);
-      const data = getVariantData(originalMessage);
-
-      renderMarkdown(textEl, variant.text, false);
-      highlightCode(textEl);
-      data.current = data.variants.length - 1;
-
-      const parentActions = body.querySelector(".msg-versions");
-      if (parentActions) {
-        const cnt = parentActions.querySelector(".msg-version-count");
-        const prev = parentActions.querySelector(".msg-version-arrow:first-child");
-        const next = parentActions.querySelector(".msg-version-arrow:last-child");
-        parentActions.style.display = "flex";
-        if (cnt) cnt.textContent = `${data.current + 1}/${data.variants.length}`;
-        if (prev) prev.disabled = data.current <= 0;
-        if (next) next.disabled = data.current >= data.variants.length - 1;
+      if (originalMessage.error) {
+        // вместо сообщения об ошибке ставим нормальный ответ
+        originalMessage.error = false;
+        originalMessage.variants = [variant];
+        originalMessage.vIndex = 0;
+      } else {
+        ensureVariants(originalMessage);
+        originalMessage.variants.push(variant);
+        originalMessage.vIndex = originalMessage.variants.length - 1;
       }
+      setVariant(originalMessage, originalMessage.vIndex);
+
+      renderVariantInPlace(originalMessage, body);
+      if (body._updateVersions) body._updateVersions();
 
       save();
       scrollThreadToBottom();
     } catch (err) {
       console.error("WAW: retry failed", err);
-      renderMarkdown(textEl, "не удалось переписать ответ. попробуй ещё раз", false);
+      renderVariantInPlace(originalMessage, body); // возвращаем прежний текст
+      alert("не удалось переписать ответ: " + (err && err.message ? err.message : "ошибка"));
     } finally {
       isGenerating = false;
       updateSendBtnState();
@@ -603,10 +608,7 @@
 
     const phrase = EMPTY_GREETINGS[Math.floor(Math.random() * EMPTY_GREETINGS.length)];
 
-    if (name && Math.random() < 0.3) {
-      return `${name}, ${phrase}`;
-    }
-
+    if (name && Math.random() < 0.3) return `${name}, ${phrase}`;
     return phrase;
   }
 
@@ -627,12 +629,15 @@
     emptyStateEl.style.display = "none";
 
     chat.messages.forEach((m) => {
+      if (m.role === "model" && !m.id) m.id = uid();
       const { wrap, textEl } = buildMessageShell(m);
       renderMarkdown(textEl, m.text, false);
       highlightCode(textEl);
       messagesEl.appendChild(wrap);
-      if (m.role === "model") ensureVariantData(m);
     });
+
+    // если в этом чате ещё идёт генерация — возвращаем индикатор
+    if (isGenerating && typingChatId === chat.id) showTyping();
 
     scrollThreadToBottom();
   }
@@ -670,6 +675,7 @@
   }
 
   function showTyping() {
+    if ($("typingRow")) return;
     brandDot.classList.add("thinking");
     emptyStateEl.style.display = "none";
     const wrap = document.createElement("div");
@@ -692,34 +698,71 @@
   /* =========================================================
      IMAGE
      ========================================================= */
+  // уменьшаем и пережимаем в JPEG, чтобы не забить localStorage
+  function compressImage(file) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onerror = () => resolve(null);
+      reader.onload = () => {
+        const original = reader.result;
+        const img = new Image();
+        img.onerror = () => resolve(original);
+        img.onload = () => {
+          const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          try {
+            resolve(canvas.toDataURL("image/jpeg", 0.85));
+          } catch (e) {
+            resolve(original);
+          }
+        };
+        img.src = original;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   attachBtn.addEventListener("click", () => fileInput.click());
 
-  fileInput.addEventListener("change", () => {
+  fileInput.addEventListener("change", async () => {
     const file = fileInput.files && fileInput.files[0];
+    fileInput.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       alert("Можно прикрепить только изображение");
       return;
     }
     if (file.size > MAX_IMAGE_BYTES) {
-      alert("Максимум 5 МБ");
+      alert("Максимум 10 МБ");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      pendingImage = { dataUrl: reader.result, mimeType: file.type, name: file.name };
-      attachPreviewImg.src = reader.result;
-      attachPreview.hidden = false;
-      updateSendBtnState();
-    };
-    reader.readAsDataURL(file);
-    fileInput.value = "";
+    const dataUrl = await compressImage(file);
+    if (!dataUrl) {
+      alert("Не удалось прочитать изображение");
+      return;
+    }
+    pendingImage = { dataUrl: dataUrl, name: file.name };
+    attachPreviewImg.src = dataUrl;
+    attachPreview.hidden = false;
+    updateSendBtnState();
   });
 
-  attachRemove.addEventListener("click", () => {
+  function clearPendingImage() {
     pendingImage = null;
     attachPreview.hidden = true;
     attachPreviewImg.src = "";
+  }
+
+  attachRemove.addEventListener("click", () => {
+    clearPendingImage();
     updateSendBtnState();
   });
 
@@ -745,7 +788,8 @@
     const chat = getActiveChat();
 
     if (chat.messages.length === 0 && chat.title.startsWith("Диалог")) {
-      chat.title = text.slice(0, 32) + (text.length > 32 ? "…" : "");
+      const base = text || "Изображение";
+      chat.title = base.slice(0, 32) + (base.length > 32 ? "…" : "");
     }
 
     chat.messages.push({
@@ -755,63 +799,77 @@
       createdAt: Date.now(),
     });
 
-    pendingImage = null;
-    attachPreview.hidden = true;
-    attachPreviewImg.src = "";
+    clearPendingImage();
 
     save();
     renderChatList();
-    renderMessages();
+
+    isGenerating = true;
+    typingChatId = chat.id;
+    renderMessages(); // добавит индикатор набора
 
     messageInput.value = "";
     autoResizeInput();
     updateSendBtnState();
 
-    isGenerating = true;
-    showTyping();
+    // пока ждали ответ, диалог могли сменить или удалить
+    const stillThere = () => state.chats.includes(chat);
+    const isVisible = () => stillThere() && state.activeChatId === chat.id;
 
     try {
       const { answer, reasoning } = await getReply(chat, imageToSend);
-      hideTyping();
 
       const msg = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: uid(),
         role: "model",
         text: answer,
         reasoning: reasoning || undefined,
         createdAt: Date.now(),
       };
+      ensureVariants(msg);
+
+      if (!stillThere()) return;
       chat.messages.push(msg);
       save();
 
-      const { wrap, textEl } = buildMessageShell(msg);
-      messagesEl.appendChild(wrap);
-      ensureVariantData(msg);
-      scrollThreadToBottom();
-
-      await streamText(textEl, answer);
+      if (isVisible()) {
+        hideTyping();
+        const { wrap, textEl } = buildMessageShell(msg);
+        messagesEl.appendChild(wrap);
+        scrollThreadToBottom();
+        await streamText(textEl, answer);
+      }
     } catch (err) {
       console.error("WAW: reply failed", err);
-      hideTyping();
+
+      if (!stillThere()) return;
+
       const msg = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: uid(),
         role: "model",
+        error: true,
         text:
           "не удалось получить ответ (" +
           (err && err.message ? err.message : "неизвестная ошибка") +
           "). попробуй ещё раз чуть позже",
         createdAt: Date.now(),
       };
+      ensureVariants(msg);
       chat.messages.push(msg);
       save();
-      const { wrap, textEl } = buildMessageShell(msg);
-      messagesEl.appendChild(wrap);
-      ensureVariantData(msg);
-      await streamText(textEl, msg.text);
+
+      if (isVisible()) {
+        hideTyping();
+        const { wrap, textEl } = buildMessageShell(msg);
+        messagesEl.appendChild(wrap);
+        await streamText(textEl, msg.text);
+      }
     } finally {
+      hideTyping();
       isGenerating = false;
+      typingChatId = null;
       updateSendBtnState();
-      messageInput.focus();
+      if (window.innerWidth > 840) messageInput.focus();
     }
   }
 
@@ -821,12 +879,24 @@
   async function getReply(source, imagePayload) {
     const chatMessages = Array.isArray(source) ? source : source.messages;
 
-    const history = chatMessages
-      .filter((m) => m.text)
-      .map((m) => ({
-        role: m.role === "model" ? "assistant" : "user",
-        text: m.text,
-      }));
+    // сообщения-ошибки в историю модели не отправляем
+    const usable = chatMessages.filter((m) => m.text && !m.error);
+
+    const history = usable.map((m) => ({
+      role: m.role === "model" ? "assistant" : "user",
+      text: m.text,
+    }));
+
+    // картинка последнего user-сообщения (в том числе при «переписать ответ»)
+    let image = imagePayload ? imagePayload.dataUrl : null;
+    if (!image) {
+      for (let i = usable.length - 1; i >= 0; i--) {
+        if (usable[i].role === "user") {
+          image = usable[i].image || null;
+          break;
+        }
+      }
+    }
 
     const res = await fetch(API_ENDPOINT, {
       method: "POST",
@@ -836,7 +906,7 @@
         personalInstruction: state.settings.personalInstruction || "",
         reasoning: reasoningOn,
         roleplay: roleplayOn,
-        image: imagePayload ? imagePayload.dataUrl : null,
+        image: image,
       }),
     });
 
@@ -844,8 +914,8 @@
     try { data = await res.json(); }
     catch (e) { throw new Error(`Worker вернул не JSON (HTTP ${res.status})`); }
 
-    if (!res.ok || !data.ok) {
-      throw new Error(data.error || `Worker вернул HTTP ${res.status}`);
+    if (!res.ok || !data || !data.ok) {
+      throw new Error((data && data.error) || `Worker вернул HTTP ${res.status}`);
     }
 
     return parseReasoning(data.answer || "пустой ответ");
@@ -856,9 +926,9 @@
       return { answer: raw.trim(), reasoning: undefined };
     }
     const match = raw.match(
-      /(?:рассуждение|reasoning|мысли|thinking)\s*:\s*([\s\S]*?)\s*(?:ответ|answer)\s*:\s*([\s\S]*)/i
+      /^\s*[*_#>\s]*(?:рассуждение|reasoning|мысли|thinking)\s*[*_]*\s*:\s*[*_]*\s*([\s\S]*?)\s*[*_#>\s]*(?:ответ|answer)\s*[*_]*\s*:\s*[*_]*\s*([\s\S]*)$/i
     );
-    if (match) {
+    if (match && match[2].trim()) {
       return { reasoning: match[1].trim(), answer: match[2].trim() };
     }
     return { answer: raw.trim(), reasoning: undefined };
@@ -977,7 +1047,7 @@
   }
 
   function animateThemeChange(sourceElement, apply) {
-    const rect = sourceElement?.getBoundingClientRect();
+    const rect = sourceElement && sourceElement.getBoundingClientRect();
     apply();
     if (!rect) return;
     const newBg = getComputedStyle(document.body).backgroundColor;
@@ -1038,15 +1108,18 @@
     if (!ok) return;
 
     localStorage.removeItem(STORAGE_KEY);
-    responseVariants.clear();
     state = defaultState();
     reasoningOn = state.settings.reasoningDefault;
     roleplayOn = state.settings.roleplayDefault;
+    clearPendingImage();
     save();
     closeSettings();
+    setToggle(reasoningToggle, reasoningOn);
+    setToggle(roleplayToggle, roleplayOn);
     applyTheme();
     applyProfileToUI();
     renderAll();
+    updateSendBtnState();
   });
 
   function resolveTheme() {
@@ -1060,16 +1133,11 @@
   }
 
   function updateLogo() {
+    const src = ACCENT_ICONS[state.settings.accent] || ACCENT_ICONS.violet;
     const logo = document.getElementById("emptyLogo");
-    if (logo) {
-      const src = ACCENT_ICONS[state.settings.accent] || ACCENT_ICONS.violet;
-      if (logo.getAttribute("src") !== src) logo.setAttribute("src", src);
-    }
+    if (logo && logo.getAttribute("src") !== src) logo.setAttribute("src", src);
     const fav = document.querySelector('link[rel="icon"]');
-    if (fav) {
-      const src = ACCENT_ICONS[state.settings.accent] || ACCENT_ICONS.violet;
-      if (fav.getAttribute("href") !== src) fav.setAttribute("href", src);
-    }
+    if (fav && fav.getAttribute("href") !== src) fav.setAttribute("href", src);
   }
 
   function applyTheme() {
@@ -1077,6 +1145,13 @@
     const resolved = resolveTheme();
     document.body.classList.toggle("light", resolved === "light");
     themeSegmented.dataset.active = state.settings.theme;
+
+    // цвет статус-бара под выбранную тему (а не только под системную)
+    const barColor = resolved === "light" ? "#FFFFFF" : "#0E0B19";
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+      m.setAttribute("content", barColor);
+    });
+
     updateLogo();
   }
 
@@ -1099,7 +1174,7 @@
       `«${chat.title}» будет удалён вместе с историей.`,
       "Удалить"
     );
-    if (ok) deleteChat(state.activeChatId);
+    if (ok) deleteChat(chat.id);
   });
 
   messageInput.addEventListener("input", () => {
@@ -1108,7 +1183,7 @@
   });
 
   messageInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       sendMessage();
     }
