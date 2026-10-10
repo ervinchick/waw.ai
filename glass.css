@@ -319,13 +319,40 @@ body.light .model-note::before{ background:#e08a00; box-shadow:0 0 8px rgba(224,
 }
 .model-option.active .model-check{ opacity:1; transform:none; }
 
-/* ---------- мобилки ---------- */
+/* ===========================================================
+   МОБИЛКИ — оптимизировано под производительность
+   =========================================================== */
 @media (max-width: 840px){
-  :root{ --topbar-h: 58px; }
+  :root{
+    --topbar-h: 58px;
+    /* уменьшаем blur для слабых GPU */
+    --glass-blur: blur(14px) saturate(140%);
+    --glass-blur-strong: blur(22px) saturate(150%);
+  }
 
+  /* ambient не анимируем — экономим GPU и батарею */
+  .ambient::before{ animation: none; }
+
+  /* сайдбар — стекло остаётся (это важный элемент) */
   .sidebar{ box-shadow: var(--rim), var(--shadow-3); }
   .profile-btn{ background: var(--glass-fill); }
 
+  /* УБИРАЕМ backdrop-filter с сообщений — их много, это главный источник лагов */
+  .msg.model .msg-body,
+  body.light .msg.model .msg-body{
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  }
+  body.light .msg.model .msg-body{
+    background: color-mix(in srgb, #F5F5F7 92%, transparent);
+  }
+
+  /* композер — оставляем, он один */
+  /* топбар — оставляем, он один */
+  /* модалки и шторка моделей — оставляем, они редки */
+
+  /* шторка моделей — снизу, как bottom sheet */
   .model-pill{ height:42px; padding:0 14px 0 13px; font-size:14px; }
 
   .model-sheet{
@@ -359,7 +386,7 @@ body.light .model-note::before{ background:#e08a00; box-shadow:0 0 8px rgba(224,
   .ambient::before{ animation:none; }
 }
 
-/* у браузеров без backdrop-filter стекло делаем плотнее, чтобы текст читался */
+/* ---------- fallback: браузеры без backdrop-filter ---------- */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))){
   :root{ --glass-fill:rgba(32,26,58,.92); --glass-fill-strong:rgba(32,26,58,.96); --glass-modal:rgba(24,18,46,.97); }
   body.light{ --glass-fill:rgba(255,255,255,.94); --glass-fill-strong:rgba(255,255,255,.97); --glass-modal:rgba(255,255,255,.98); }
