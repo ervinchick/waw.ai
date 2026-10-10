@@ -1,1 +1,366 @@
+/* ===========================================================
+   WAW — жидкое стекло, тени, шторка моделей
+   Подключается ПОСЛЕ styles.css и переопределяет его.
+   =========================================================== */
 
+/* ---------- токены ---------- */
+:root{
+  --topbar-h: 56px;
+
+  --glass-blur: blur(22px) saturate(170%);
+  --glass-blur-strong: blur(34px) saturate(190%);
+  --glass-fill: rgba(255,255,255,.07);
+  --glass-fill-strong: rgba(255,255,255,.11);
+  --glass-modal: rgba(24,18,46,.64);
+  --glass-input: rgba(0,0,0,.20);
+  --glass-edge: rgba(255,255,255,.16);
+  --glass-hi: rgba(255,255,255,.34);
+  --glass-lo: rgba(255,255,255,.07);
+  --glass-sheen: linear-gradient(135deg, rgba(255,255,255,.16) 0%, rgba(255,255,255,.03) 38%, rgba(255,255,255,0) 60%, rgba(255,255,255,.06) 100%);
+  --rim: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-lo), inset 1px 0 0 var(--glass-lo), inset -1px 0 0 var(--glass-lo);
+
+  --shadow-1: 0 1px 2px rgba(4,2,12,.28), 0 3px 8px -2px rgba(4,2,12,.30);
+  --shadow-2: 0 2px 4px rgba(4,2,12,.22), 0 10px 24px -6px rgba(4,2,12,.42), 0 22px 48px -16px rgba(4,2,12,.45);
+  --shadow-3: 0 4px 8px rgba(2,1,8,.28), 0 18px 44px -10px rgba(2,1,8,.55), 0 48px 100px -24px rgba(2,1,8,.65);
+  --shadow-panel: var(--shadow-2);
+  --shadow-modal: var(--shadow-3);
+}
+:root[data-accent]{
+  --glow-accent: 0 8px 22px -6px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+body.light{
+  --glass-fill: rgba(255,255,255,.55);
+  --glass-fill-strong: rgba(255,255,255,.74);
+  --glass-modal: rgba(255,255,255,.80);
+  --glass-input: rgba(255,255,255,.75);
+  --glass-edge: rgba(110,100,170,.16);
+  --glass-hi: rgba(255,255,255,.95);
+  --glass-lo: rgba(110,100,170,.10);
+  --glass-sheen: linear-gradient(135deg, rgba(255,255,255,.75) 0%, rgba(255,255,255,.12) 45%, rgba(255,255,255,.35) 100%);
+
+  --shadow-1: 0 1px 2px rgba(50,40,110,.06), 0 3px 10px -3px rgba(50,40,110,.10);
+  --shadow-2: 0 2px 4px rgba(50,40,110,.05), 0 10px 26px -8px rgba(50,40,110,.16), 0 24px 50px -18px rgba(50,40,110,.18);
+  --shadow-3: 0 4px 10px rgba(50,40,110,.08), 0 20px 48px -12px rgba(50,40,110,.24), 0 50px 100px -28px rgba(50,40,110,.28);
+  --shadow-panel: 0 2px 4px rgba(50,40,110,.05), 0 10px 26px -8px rgba(50,40,110,.16), 0 24px 50px -18px rgba(50,40,110,.18);
+  --shadow-modal: 0 4px 10px rgba(50,40,110,.08), 0 20px 48px -12px rgba(50,40,110,.24), 0 50px 100px -28px rgba(50,40,110,.28);
+  --glow-accent: 0 8px 20px -8px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* ---------- фон, сквозь который «преломляется» стекло ---------- */
+.ambient{ position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
+.ambient::before{
+  content:""; position:absolute; inset:-20%;
+  background:
+    radial-gradient(38% 34% at 14% 12%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 70%),
+    radial-gradient(34% 30% at 88% 22%, color-mix(in srgb, var(--accent-soft) 26%, transparent), transparent 70%),
+    radial-gradient(40% 36% at 66% 96%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%);
+  animation: ambient-drift 32s ease-in-out infinite alternate;
+  will-change: transform;
+}
+body.light .ambient::before{ opacity:.5; }
+@keyframes ambient-drift{
+  from{ transform:translate3d(-2%,-1%,0) scale(1); }
+  to{ transform:translate3d(3%,2%,0) scale(1.08); }
+}
+.app{ position:relative; z-index:1; }
+
+/* ---------- сайдбар ---------- */
+.sidebar{
+  background: var(--glass-sheen), var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-edge);
+  box-shadow: var(--rim), var(--shadow-1);
+}
+.sidebar-bottom{ border-top-color: var(--glass-edge); }
+.sidebar-scrim, .settings-scrim, .waw-modal-scrim{
+  background: rgba(8,5,20,.38);
+  -webkit-backdrop-filter: blur(10px) saturate(130%); backdrop-filter: blur(10px) saturate(130%);
+}
+body.light .sidebar-scrim, body.light .settings-scrim, body.light .waw-modal-scrim{ background: rgba(40,30,90,.16); }
+
+/* ---------- лента: топбар и композер лежат поверх неё ---------- */
+.main{ position:relative; overflow:hidden; }
+.thread{
+  padding-top: calc(var(--topbar-h) + 4px);
+  padding-bottom: var(--composer-h, 130px);
+}
+.topbar{
+  position:absolute; top:0; left:0; right:0; z-index:6;
+  height: var(--topbar-h);
+  background: var(--glass-sheen), var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 8px 28px -14px rgba(4,2,12,.45);
+}
+body.light .topbar{ box-shadow: inset 0 1px 0 var(--glass-hi), 0 8px 28px -14px rgba(50,40,110,.22); }
+
+.composer-wrap{
+  position:absolute; left:0; right:0; bottom:0; z-index:6;
+  pointer-events:none;
+  background: linear-gradient(to top, color-mix(in srgb, var(--bg) 80%, transparent), transparent);
+}
+.composer, .composer-hint{ pointer-events:auto; }
+
+.composer, body.light .composer{
+  background: var(--glass-sheen), var(--glass-fill-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--rim), var(--shadow-2);
+}
+.composer:focus-within, body.light .composer:focus-within{
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--glass-edge));
+  box-shadow: var(--rim), var(--shadow-2), 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.composer-row{ border-bottom-color: var(--glass-lo); }
+
+/* ---------- сообщения ---------- */
+.msg.model .msg-body, body.light .msg.model .msg-body{
+  background: var(--glass-sheen), var(--glass-fill);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--rim), var(--shadow-1);
+}
+.msg.model .msg-body:hover, body.light .msg.model .msg-body:hover{
+  box-shadow: var(--rim), var(--shadow-2);
+}
+.msg.user .msg-body, body.light .msg.user .msg-body{
+  background: linear-gradient(150deg,
+    color-mix(in srgb, var(--accent) 80%, #fff) 0%,
+    var(--accent) 55%,
+    color-mix(in srgb, var(--accent) 82%, #000) 100%);
+  border: 1px solid color-mix(in srgb, var(--accent-soft) 45%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.12), var(--glow-accent), var(--shadow-1);
+  color:#fff;
+}
+.msg.streaming .msg-actions{ display:none; }
+
+.msg-text blockquote, .reasoning-block{ background: color-mix(in srgb, var(--accent) 10%, transparent); border-left-color: var(--accent); }
+.msg-text code{ background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--glass-edge); }
+.msg-text pre{ background: rgba(10,7,22,.55); border-color: var(--glass-edge); box-shadow: var(--rim); }
+body.light .msg-text pre{ background: rgba(255,255,255,.7); border-color: var(--glass-edge); }
+.msg.user .msg-text blockquote, .msg.user .reasoning-block{ background: rgba(255,255,255,.14); border-left-color: rgba(255,255,255,.6); }
+.msg.user .msg-text code{ background: rgba(255,255,255,.16); }
+
+.msg-action:hover, .chat-action:hover, .icon-btn:hover{ background: var(--glass-fill-strong); }
+.chat-action.edit:hover{ background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+@keyframes copy-flash{
+  0%{ box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+  100%{ box-shadow: 0 0 0 12px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+@keyframes needle-pulse{
+  0%,100%{ transform:scale(1); opacity:1; box-shadow:0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+  50%{ transform:scale(1.5); opacity:.6; box-shadow:0 0 16px 5px color-mix(in srgb, var(--accent) 45%, transparent); }
+}
+
+/* ---------- кнопки и пилюли ---------- */
+.new-chat-btn, .pill-toggle{
+  background: var(--glass-sheen), var(--glass-fill);
+  -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
+  border-color: var(--glass-edge);
+  box-shadow: var(--rim), var(--shadow-1);
+}
+.new-chat-btn:hover, .pill-toggle:hover{
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--glass-edge));
+  box-shadow: var(--rim), var(--shadow-2);
+}
+.pill-toggle[aria-pressed="true"]{
+  background: var(--glass-sheen), color-mix(in srgb, var(--accent) 30%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent-soft);
+  box-shadow: var(--rim), 0 6px 18px -8px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+body.light .pill-toggle[aria-pressed="true"]{ color: var(--accent); }
+
+.chat-item:hover{ background: var(--glass-fill); }
+.chat-item.active{
+  background: var(--glass-sheen), color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: var(--glass-edge);
+  box-shadow: var(--rim);
+}
+.profile-btn:hover, .profile-btn{ background: var(--glass-fill); box-shadow: var(--rim); }
+.profile-btn:hover{ background: var(--glass-fill-strong); }
+
+.send-btn{
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 78%, #fff), var(--accent));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.5), var(--glow-accent);
+}
+.send-btn:not(:disabled):hover{ box-shadow: inset 0 1px 0 rgba(255,255,255,.55), var(--glow-accent), var(--shadow-1); }
+
+.empty-logo{
+  box-shadow: var(--shadow-3), 0 0 60px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* ---------- настройки и модалки ---------- */
+.settings-modal, .waw-modal{
+  background: var(--glass-sheen), var(--glass-modal);
+  -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--rim), var(--shadow-3);
+}
+.settings-header{ border-bottom-color: var(--glass-edge); }
+.settings-section, body.light .settings-section{
+  background: var(--glass-fill);
+  border-color: var(--glass-edge);
+  box-shadow: var(--rim);
+}
+.settings-section.danger-zone{ border-color: rgba(224,102,122,.35); }
+.field input[type="text"], .field textarea{
+  background: var(--glass-input);
+  border-color: var(--glass-edge);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.18);
+}
+.field input:focus, .field textarea:focus{
+  border-color: var(--accent);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.12), 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.segmented, body.light .segmented{ background: var(--glass-input); border-color: var(--glass-edge); box-shadow: inset 0 1px 2px rgba(0,0,0,.14); }
+.segmented button.active{
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 80%, #fff), var(--accent));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 4px 12px -4px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.waw-modal-btn{ border-color: var(--glass-edge); background: var(--glass-fill); box-shadow: var(--rim); }
+
+/* ---------- кнопка модели в топбаре ---------- */
+.model-pill, .model-option{ --tier-color: var(--accent); }
+.model-pill[data-tier="fast"], .model-option[data-tier="fast"]{ --tier-color:#4ade9a; }
+.model-pill[data-tier="std"],  .model-option[data-tier="std"]{  --tier-color: var(--accent); }
+.model-pill[data-tier="pro"],  .model-option[data-tier="pro"]{  --tier-color:#ffb454; }
+
+.model-pill{
+  display:flex; align-items:center; gap:8px; flex:0 0 auto;
+  height:34px; padding:0 12px 0 11px;
+  border-radius:999px; border:1px solid var(--glass-edge);
+  background: var(--glass-sheen), var(--glass-fill);
+  -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
+  color: var(--text);
+  font-family: var(--font-ui); font-size:13px; font-weight:500;
+  box-shadow: var(--rim), var(--shadow-1);
+  transition: transform .15s ease, box-shadow .2s ease, border-color .15s ease;
+}
+.model-pill:hover{ transform:translateY(-1px); box-shadow: var(--rim), var(--shadow-2); border-color: color-mix(in srgb, var(--tier-color) 55%, var(--glass-edge)); }
+.model-pill:active{ transform:scale(.97); }
+.model-pill svg{ width:14px; height:14px; color: var(--text-muted); transition: transform .22s ease; }
+.model-pill[aria-expanded="true"] svg{ transform: rotate(180deg); }
+.model-pill-dot, .model-orb{
+  width:9px; height:9px; border-radius:50%; flex:0 0 auto;
+  background: var(--tier-color);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--tier-color) 80%, transparent);
+}
+
+/* ---------- шторка моделей ---------- */
+.model-scrim{
+  position:fixed; inset:0; z-index:60;
+  background: rgba(8,5,20,.34);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  opacity:0; pointer-events:none;
+  transition: opacity .25s ease;
+}
+body.light .model-scrim{ background: rgba(40,30,90,.14); }
+.model-scrim.open{ opacity:1; pointer-events:auto; }
+
+.model-sheet{
+  position:fixed; z-index:61;
+  width:340px; padding:10px;
+  border-radius:24px;
+  background: var(--glass-sheen), var(--glass-modal);
+  -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--rim), var(--shadow-3);
+  opacity:0; pointer-events:none;
+  transform-origin: top right;
+  transform: translateY(-6px) scale(.97);
+  transition: transform .26s cubic-bezier(.32,.72,.28,1), opacity .2s ease;
+}
+.model-sheet.open{ opacity:1; pointer-events:auto; transform:none; }
+
+.sheet-grab{ display:none; }
+.sheet-title{
+  font-family: var(--font-ui); font-size:11.5px; font-weight:600;
+  text-transform:uppercase; letter-spacing:1px;
+  color: var(--text-faint); padding:8px 10px 10px;
+}
+.model-list{ display:flex; flex-direction:column; gap:6px; }
+
+.model-option{
+  display:flex; align-items:center; gap:12px;
+  width:100%; text-align:left; padding:12px 14px;
+  border-radius:18px; border:1px solid transparent;
+  background:transparent; color: var(--text);
+  transition: background .15s ease, border-color .15s ease, transform .12s ease;
+}
+.model-option:hover{ background: var(--glass-fill); }
+.model-option:active{ transform:scale(.985); }
+.model-option.active{
+  background: var(--glass-sheen), color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--glass-edge));
+  box-shadow: var(--rim);
+}
+.model-info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.model-name{
+  display:flex; align-items:center; gap:8px;
+  font-family: var(--font-ui); font-weight:600; font-size:14.5px;
+}
+.model-badge{
+  font-style:normal; font-size:10.5px; font-weight:600; letter-spacing:.2px;
+  padding:2px 8px; border-radius:999px;
+  background: color-mix(in srgb, var(--tier-color) 22%, transparent);
+  color: color-mix(in srgb, var(--tier-color) 70%, var(--text));
+}
+.model-desc{ font-size:12.5px; line-height:1.4; color: var(--text-muted); }
+.model-note{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:#ffb454; }
+.model-note::before{ content:""; width:6px; height:6px; border-radius:50%; background:#ffb454; box-shadow:0 0 8px #ffb454; }
+body.light .model-note{ color:#b26a00; }
+body.light .model-note::before{ background:#e08a00; box-shadow:0 0 8px rgba(224,138,0,.6); }
+.model-check{
+  width:18px; height:18px; flex:0 0 auto; color: var(--accent);
+  opacity:0; transform:scale(.6);
+  transition: opacity .18s ease, transform .22s cubic-bezier(.32,.72,.28,1);
+}
+.model-option.active .model-check{ opacity:1; transform:none; }
+
+/* ---------- мобилки ---------- */
+@media (max-width: 840px){
+  :root{ --topbar-h: 58px; }
+
+  .sidebar{ box-shadow: var(--rim), var(--shadow-3); }
+  .profile-btn{ background: var(--glass-fill); }
+
+  .model-pill{ height:42px; padding:0 14px 0 13px; font-size:14px; }
+
+  .model-sheet{
+    left:12px; right:12px; width:auto; max-width:520px; margin:0 auto;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    padding:8px 12px 14px;
+    border-radius:30px;
+    opacity:1;
+    transform: translateY(calc(100% + 40px));
+    transform-origin: bottom center;
+    transition: transform .34s cubic-bezier(.32,.72,.28,1);
+  }
+  .model-sheet.open{ transform:none; }
+  .sheet-grab{
+    display:block; width:40px; height:5px; border-radius:999px;
+    margin:4px auto 4px; background: var(--glass-hi); opacity:.6;
+  }
+  .sheet-title{ padding:8px 10px 10px; }
+  .model-option{ padding:14px 16px; border-radius:20px; }
+  .model-name{ font-size:15.5px; }
+  .model-desc{ font-size:13px; }
+  .model-note{ font-size:12px; }
+}
+
+@media (max-width: 420px){
+  .model-pill{ padding:0 12px 0 11px; max-width:150px; }
+  .model-pill #modelLabel{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .ambient::before{ animation:none; }
+}
+
+/* у браузеров без backdrop-filter стекло делаем плотнее, чтобы текст читался */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))){
+  :root{ --glass-fill:rgba(32,26,58,.92); --glass-fill-strong:rgba(32,26,58,.96); --glass-modal:rgba(24,18,46,.97); }
+  body.light{ --glass-fill:rgba(255,255,255,.94); --glass-fill-strong:rgba(255,255,255,.97); --glass-modal:rgba(255,255,255,.98); }
+}
