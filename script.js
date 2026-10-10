@@ -18,6 +18,35 @@
   const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   /* =========================================================
+     МОДЕЛИ
+     ========================================================= */
+  const MODELS = [
+    {
+      id: "waw-1.3",
+      name: "WAW 1.3",
+      tier: "fast",
+      badge: "быстрая",
+      desc: "самые быстрые и короткие ответы",
+    },
+    {
+      id: "waw-1.7-extra",
+      name: "WAW 1.7 Extra",
+      tier: "std",
+      badge: "",
+      desc: "универсальная модель для повседневных задач",
+    },
+    {
+      id: "waw-2.0-pro",
+      name: "WAW 2.0 Pro",
+      tier: "pro",
+      badge: "новая",
+      desc: "самая продвинутая и новая модель",
+      note: "может быть занята в пиковые часы",
+    },
+  ];
+  const DEFAULT_MODEL = "waw-1.3";
+
+  /* =========================================================
      STORAGE
      ========================================================= */
   function loadState() {
@@ -59,11 +88,15 @@
         theme: "dark",
         reasoningDefault: false,
         roleplayDefault: false,
+        model: DEFAULT_MODEL,
       },
     };
   }
 
   let state = loadState() || defaultState();
+  if (!MODELS.some((m) => m.id === state.settings.model)) {
+    state.settings.model = DEFAULT_MODEL;
+  }
   let reasoningOn = state.settings.reasoningDefault;
   let roleplayOn = state.settings.roleplayDefault;
   let isGenerating = false;
@@ -107,6 +140,14 @@
   const messageInput = $("messageInput");
   const sendBtn = $("sendBtn");
   const brandDot = document.querySelector(".brand-dot");
+  const mainEl = document.querySelector(".main");
+  const composerWrap = document.querySelector(".composer-wrap");
+
+  const modelBtn = $("modelBtn");
+  const modelLabel = $("modelLabel");
+  const modelScrim = $("modelScrim");
+  const modelSheet = $("modelSheet");
+  const modelList = $("modelList");
 
   const sidebarEl = $("sidebar");
   const sidebarScrim = $("sidebarScrim");
@@ -488,7 +529,7 @@
     return actions;
   }
 
-  function renderVariantInPlace(message, body) {
+  function renderVariantInPlace(message, body, withCaret) {
     const textEl = body.querySelector(".msg-text");
     if (!textEl) return;
 
@@ -504,8 +545,8 @@
       reasoning.remove();
     }
 
-    renderMarkdown(textEl, message.text, false);
-    highlightCode(textEl);
+    renderMarkdown(textEl, message.text || "", !!withCaret);
+    if (!withCaret) highlightCode(textEl);
   }
 
   async function copyMessage(message, body, button) {
@@ -528,9 +569,7 @@
     const chat = getActiveChat();
     const index = chat.messages.findIndex((m) => m.id === originalMessage.id);
     if (index === -1) return;
-
-    const hasUser = chat.messages.slice(0, index).some((m) => m.role === "user");
-    if (!hasUser) return;
+    if (!chat.messages.slice(0, index).some((m) => m.role === "user")) return;
 
     const wrap = messagesEl.querySelector(
       `.msg[data-message-id="${originalMessage.id}"]`
@@ -541,12 +580,31 @@
 
     isGenerating = true;
     updateSendBtnState();
-
+    wrap.classList.add("streaming");
     textEl.innerHTML = `<div class="typing"><span></span><span></span><span></span></div>`;
 
+    const painter = createLivePainter((raw) => {
+      if (!wrap.isConnected) return;
+      const live = splitReasoning(raw, true);
+      const stick = isNearBottom();
+      renderVariantInPlace(
+        { text: live.answer, reasoning: live.reasoning },
+        body,
+        true
+      );
+      if (stick) threadEl.scrollTop = threadEl.scrollHeight;
+    });
+
     try {
-      const result = await getReply(chat.messages.slice(0, index), null);
-      const variant = { text: result.answer, reasoning: result.reasoning || undefined };
+      const raw = await requestReply(
+        chat.messages.slice(0, index),
+        null,
+        painter.push
+      );
+      painter.stop();
+
+      const result = splitReasoning(raw, false);
+      const variant = { text: result.answer, reasoning: result.reasoning };
 
       if (originalMessage.error) {
         // вместо сообщения об ошибке ставим нормальный ответ
@@ -560,16 +618,21 @@
       }
       setVariant(originalMessage, originalMessage.vIndex);
 
-      renderVariantInPlace(originalMessage, body);
+      renderVariantInPlace(originalMessage, body, false);
       if (body._updateVersions) body._updateVersions();
 
       save();
       scrollThreadToBottom();
     } catch (err) {
+      painter.stop();
       console.error("WAW: retry failed", err);
-      renderVariantInPlace(originalMessage, body); // возвращаем прежний текст
-      alert("не удалось переписать ответ: " + (err && err.message ? err.message : "ошибка"));
+      renderVariantInPlace(originalMessage, body, false); // возвращаем прежний текст
+      alert(
+        "не удалось переписать ответ: " +
+          (err && err.message ? err.message : "ошибка")
+      );
     } finally {
+      wrap.classList.remove("streaming");
       isGenerating = false;
       updateSendBtnState();
     }
@@ -646,32 +709,33 @@
     requestAnimationFrame(() => { threadEl.scrollTop = threadEl.scrollHeight; });
   }
 
-  function streamText(textEl, fullText) {
-    return new Promise((resolve) => {
-      const len = fullText.length;
-      const duration = Math.min(1400, Math.max(300, len * 6));
-      const start = performance.now();
-      let lastRender = 0;
+  function isNearBottom() {
+    return (
+      threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 140
+    );
+  }
 
-      function tick(now) {
-        const p = Math.min(1, (now - start) / duration);
-        const eased = 1 - Math.pow(1 - p, 2);
-        const cut = Math.floor(len * eased);
-        if (now - lastRender >= 32 || p >= 1) {
-          renderMarkdown(textEl, fullText.slice(0, cut), p < 1);
-          lastRender = now;
-          threadEl.scrollTop = threadEl.scrollHeight;
+  // схлопывает частые обновления стрима в один рендер на кадр
+  function createLivePainter(paint) {
+    let latest = "";
+    let raf = 0;
+    return {
+      push(raw) {
+        latest = raw;
+        if (!raf) {
+          raf = requestAnimationFrame(() => {
+            raf = 0;
+            paint(latest);
+          });
         }
-        if (p < 1) requestAnimationFrame(tick);
-        else {
-          renderMarkdown(textEl, fullText, false);
-          highlightCode(textEl);
-          threadEl.scrollTop = threadEl.scrollHeight;
-          resolve();
+      },
+      stop() {
+        if (raf) {
+          cancelAnimationFrame(raf);
+          raf = 0;
         }
-      }
-      requestAnimationFrame(tick);
-    });
+      },
+    };
   }
 
   function showTyping() {
@@ -806,77 +870,110 @@
 
     isGenerating = true;
     typingChatId = chat.id;
-    renderMessages(); // добавит индикатор набора
+    renderMessages(); // покажет индикатор набора
 
     messageInput.value = "";
     autoResizeInput();
     updateSendBtnState();
 
-    // пока ждали ответ, диалог могли сменить или удалить
+    // пока шёл ответ, диалог могли сменить или удалить
     const stillThere = () => state.chats.includes(chat);
     const isVisible = () => stillThere() && state.activeChatId === chat.id;
 
-    try {
-      const { answer, reasoning } = await getReply(chat, imageToSend);
+    const msg = {
+      id: uid(),
+      role: "model",
+      text: "",
+      model: state.settings.model,
+      createdAt: Date.now(),
+    };
+    let shell = null;
 
-      const msg = {
-        id: uid(),
-        role: "model",
-        text: answer,
-        reasoning: reasoning || undefined,
-        createdAt: Date.now(),
-      };
-      ensureVariants(msg);
+    // живой рендер: текст появляется по мере генерации
+    const painter = createLivePainter((raw) => {
+      if (!isVisible()) return;
+      if (shell && !shell.wrap.isConnected) shell = null;
 
+      const live = splitReasoning(raw, true);
+
+      if (!shell) {
+        hideTyping();
+        shell = buildMessageShell(msg);
+        shell.wrap.classList.add("streaming");
+        messagesEl.appendChild(shell.wrap);
+      }
+
+      const stick = isNearBottom();
+      renderVariantInPlace(
+        { text: live.answer, reasoning: live.reasoning },
+        shell.body,
+        true
+      );
+      if (stick) threadEl.scrollTop = threadEl.scrollHeight;
+    });
+
+    const finalize = (raw, isError) => {
+      painter.stop();
       if (!stillThere()) return;
+
+      const res = isError
+        ? { answer: raw, reasoning: undefined }
+        : splitReasoning(raw, false);
+
+      msg.text = res.answer;
+      msg.reasoning = res.reasoning;
+      if (isError) msg.error = true;
+      ensureVariants(msg);
       chat.messages.push(msg);
       save();
 
-      if (isVisible()) {
-        hideTyping();
-        const { wrap, textEl } = buildMessageShell(msg);
-        messagesEl.appendChild(wrap);
-        scrollThreadToBottom();
-        await streamText(textEl, answer);
+      if (!isVisible()) return;
+
+      hideTyping();
+      if (shell && !shell.wrap.isConnected) shell = null;
+      if (!shell) {
+        shell = buildMessageShell(msg);
+        messagesEl.appendChild(shell.wrap);
       }
+      shell.wrap.classList.remove("streaming");
+
+      const stick = isNearBottom();
+      renderVariantInPlace(msg, shell.body, false);
+      if (stick) scrollThreadToBottom();
+    };
+
+    try {
+      const raw = await requestReply(chat, imageToSend, painter.push);
+      finalize(raw, false);
     } catch (err) {
       console.error("WAW: reply failed", err);
 
-      if (!stillThere()) return;
-
-      const msg = {
-        id: uid(),
-        role: "model",
-        error: true,
-        text:
+      const partial = err && err.partial ? err.partial : "";
+      if (partial.trim()) {
+        // ответ оборвался на середине — оставляем то, что успело прийти
+        finalize(partial + "\n\n_…ответ оборвался_", false);
+      } else {
+        finalize(
           "не удалось получить ответ (" +
-          (err && err.message ? err.message : "неизвестная ошибка") +
-          "). попробуй ещё раз чуть позже",
-        createdAt: Date.now(),
-      };
-      ensureVariants(msg);
-      chat.messages.push(msg);
-      save();
-
-      if (isVisible()) {
-        hideTyping();
-        const { wrap, textEl } = buildMessageShell(msg);
-        messagesEl.appendChild(wrap);
-        await streamText(textEl, msg.text);
+            (err && err.message ? err.message : "неизвестная ошибка") +
+            "). попробуй ещё раз чуть позже",
+          true
+        );
       }
     } finally {
+      painter.stop();
       hideTyping();
       isGenerating = false;
       typingChatId = null;
       updateSendBtnState();
-      if (window.innerWidth > 840) messageInput.focus();
+      if (!isMobile()) messageInput.focus();
     }
   }
 
   /* =========================================================
-     API
+     API (потоковый ответ, NDJSON)
      ========================================================= */
-  async function getReply(source, imagePayload) {
+  async function requestReply(source, imagePayload, onUpdate) {
     const chatMessages = Array.isArray(source) ? source : source.messages;
 
     // сообщения-ошибки в историю модели не отправляем
@@ -906,32 +1003,108 @@
         personalInstruction: state.settings.personalInstruction || "",
         reasoning: reasoningOn,
         roleplay: roleplayOn,
+        model: state.settings.model,
         image: image,
+        stream: true,
       }),
     });
 
-    let data = null;
-    try { data = await res.json(); }
-    catch (e) { throw new Error(`Worker вернул не JSON (HTTP ${res.status})`); }
-
-    if (!res.ok || !data || !data.ok) {
+    if (!res.ok) {
+      let data = null;
+      try { data = await res.json(); } catch (e) {}
       throw new Error((data && data.error) || `Worker вернул HTTP ${res.status}`);
     }
 
-    return parseReasoning(data.answer || "пустой ответ");
+    let acc = "";
+    let finished = false;
+
+    const handleLine = (line) => {
+      line = line.trim();
+      if (!line) return;
+      let ev;
+      try { ev = JSON.parse(line); } catch (e) { return; }
+      if (ev.error) throw new Error(ev.error);
+      if (typeof ev.t === "string") {
+        acc += ev.t;
+        if (onUpdate) onUpdate(acc);
+      }
+      if (ev.done) finished = true;
+    };
+
+    try {
+      if (res.body && res.body.getReader) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+
+          let nl;
+          while ((nl = buf.indexOf("\n")) !== -1) {
+            const line = buf.slice(0, nl);
+            buf = buf.slice(nl + 1);
+            handleLine(line);
+          }
+        }
+
+        buf += decoder.decode();
+        if (buf.trim()) handleLine(buf);
+      } else {
+        (await res.text()).split("\n").forEach(handleLine);
+      }
+
+      if (!finished) throw new Error("соединение оборвалось");
+    } catch (err) {
+      err.partial = acc;
+      throw err;
+    }
+
+    return acc;
   }
 
-  function parseReasoning(raw) {
+  /* =========================================================
+     РАССУЖДЕНИЯ: «Рассуждение: … Ответ: …»
+     live=true — разбираем недописанный поток
+     ========================================================= */
+  const REASON_HEAD_RE =
+    /^\s*[*_#>\s]*(?:рассуждение|reasoning|мысли|thinking)\s*[*_]*\s*:\s*[*_]*\s*/i;
+  const ANSWER_MARK_RE = /[*_#>\s]*(?:ответ|answer)\s*[*_]*\s*:\s*[*_]*\s*/i;
+  const MARKER_WORDS = ["рассуждение", "reasoning", "мысли", "thinking"];
+
+  // начало потока ещё может превратиться в «Рассуждение:» — не мигаем им как ответом
+  function couldBeMarker(raw) {
+    const t = raw.trim().toLowerCase().replace(/^[*_#>\s]+/, "");
+    if (!t || t.length > 14) return false;
+    return MARKER_WORDS.some((w) => w.startsWith(t));
+  }
+
+  function splitReasoning(raw, live) {
     if (!reasoningOn) {
       return { answer: raw.trim(), reasoning: undefined };
     }
-    const match = raw.match(
-      /^\s*[*_#>\s]*(?:рассуждение|reasoning|мысли|thinking)\s*[*_]*\s*:\s*[*_]*\s*([\s\S]*?)\s*[*_#>\s]*(?:ответ|answer)\s*[*_]*\s*:\s*[*_]*\s*([\s\S]*)$/i
-    );
-    if (match && match[2].trim()) {
-      return { reasoning: match[1].trim(), answer: match[2].trim() };
+
+    const head = raw.match(REASON_HEAD_RE);
+    if (!head) {
+      if (live && couldBeMarker(raw)) return { answer: "", reasoning: undefined };
+      return { answer: raw.trim(), reasoning: undefined };
     }
-    return { answer: raw.trim(), reasoning: undefined };
+
+    const rest = raw.slice(head[0].length);
+    const mark = rest.match(ANSWER_MARK_RE);
+
+    if (!mark) {
+      if (live) return { reasoning: rest.trim(), answer: "" };
+      return { answer: raw.trim(), reasoning: undefined };
+    }
+
+    const reasoning = rest.slice(0, mark.index).trim();
+    const answer = rest.slice(mark.index + mark[0].length).trim();
+
+    if (!answer && !live) return { answer: raw.trim(), reasoning: undefined };
+    return { reasoning: reasoning || undefined, answer: answer };
   }
 
   /* =========================================================
@@ -995,6 +1168,8 @@
         closeModal(false);
       } else if (settingsScrim.classList.contains("open")) {
         closeSettings();
+      } else if (modelSheet.classList.contains("open")) {
+        closeModelSheet();
       } else {
         closeSidebar();
       }
@@ -1116,6 +1291,7 @@
     closeSettings();
     setToggle(reasoningToggle, reasoningOn);
     setToggle(roleplayToggle, roleplayOn);
+    renderModelUI();
     applyTheme();
     applyProfileToUI();
     renderAll();
@@ -1191,6 +1367,251 @@
 
   sendBtn.addEventListener("click", sendMessage);
 
+  /* =========================================================
+     ШТОРКА МОДЕЛЕЙ
+     ========================================================= */
+  function isMobile() {
+    return window.innerWidth <= 840;
+  }
+
+  function currentModel() {
+    return MODELS.find((m) => m.id === state.settings.model) || MODELS[0];
+  }
+
+  function renderModelUI() {
+    const cur = currentModel();
+    modelLabel.textContent = cur.name;
+    modelBtn.dataset.tier = cur.tier;
+
+    modelList.innerHTML = "";
+    MODELS.forEach((m) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "model-option" + (m.id === cur.id ? " active" : "");
+      btn.dataset.tier = m.tier;
+      btn.setAttribute("role", "radio");
+      btn.setAttribute("aria-checked", m.id === cur.id ? "true" : "false");
+      btn.innerHTML =
+        '<span class="model-orb"></span>' +
+        '<span class="model-info">' +
+        '<span class="model-name">' + m.name +
+        (m.badge ? '<em class="model-badge">' + m.badge + "</em>" : "") +
+        "</span>" +
+        '<span class="model-desc">' + m.desc + "</span>" +
+        (m.note ? '<span class="model-note">' + m.note + "</span>" : "") +
+        "</span>" +
+        '<svg class="model-check" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg>';
+      btn.addEventListener("click", () => {
+        state.settings.model = m.id;
+        save();
+        renderModelUI();
+        closeModelSheet();
+      });
+      modelList.appendChild(btn);
+    });
+  }
+
+  function openModelSheet() {
+    if (isMobile()) {
+      modelSheet.style.left = "";
+      modelSheet.style.top = "";
+    } else {
+      const r = modelBtn.getBoundingClientRect();
+      const w = 340;
+      modelSheet.style.left =
+        Math.max(12, Math.min(r.right - w, window.innerWidth - w - 12)) + "px";
+      modelSheet.style.top = r.bottom + 10 + "px";
+    }
+    modelSheet.style.transform = "";
+    modelSheet.classList.add("open");
+    modelScrim.classList.add("open");
+    modelSheet.setAttribute("aria-hidden", "false");
+    modelBtn.setAttribute("aria-expanded", "true");
+  }
+
+  function closeModelSheet() {
+    modelSheet.classList.remove("open");
+    modelScrim.classList.remove("open");
+    modelSheet.setAttribute("aria-hidden", "true");
+    modelBtn.setAttribute("aria-expanded", "false");
+  }
+
+  modelBtn.addEventListener("click", () => {
+    if (modelSheet.classList.contains("open")) closeModelSheet();
+    else openModelSheet();
+  });
+  modelScrim.addEventListener("click", closeModelSheet);
+  window.addEventListener("resize", () => {
+    if (modelSheet.classList.contains("open")) closeModelSheet();
+  });
+
+  // свайп вниз закрывает шторку моделей на мобилках
+  (function initSheetDrag() {
+    let y0 = null;
+    let dy = 0;
+
+    modelSheet.addEventListener(
+      "touchstart",
+      (e) => {
+        if (!isMobile()) return;
+        y0 = e.touches[0].clientY;
+        dy = 0;
+        modelSheet.style.transition = "none";
+      },
+      { passive: true }
+    );
+
+    modelSheet.addEventListener(
+      "touchmove",
+      (e) => {
+        if (y0 === null) return;
+        dy = Math.max(0, e.touches[0].clientY - y0);
+        modelSheet.style.transform = `translateY(${dy}px)`;
+      },
+      { passive: true }
+    );
+
+    const end = () => {
+      if (y0 === null) return;
+      y0 = null;
+      modelSheet.style.transition = "";
+      modelSheet.style.transform = "";
+      if (dy > 70) closeModelSheet();
+      dy = 0;
+    };
+    modelSheet.addEventListener("touchend", end);
+    modelSheet.addEventListener("touchcancel", end);
+  })();
+
+  /* =========================================================
+     СВАЙП: сайдбар выдвигается жестом, без тяги к кнопке
+     ========================================================= */
+  function overlayOpen() {
+    return (
+      settingsScrim.classList.contains("open") ||
+      wawModalScrim.classList.contains("open") ||
+      modelSheet.classList.contains("open")
+    );
+  }
+
+  (function initSidebarSwipe() {
+    let mode = null; // null | "pending" | "open" | "close" | "dead"
+    let sx = 0, sy = 0, lastX = 0, lastT = 0, vx = 0, curX = 0, off = 0;
+
+    const setProgress = (x) => {
+      curX = x;
+      const p = (x + off) / off;
+      sidebarEl.style.transform = `translateX(${x}px)`;
+      sidebarEl.style.opacity = String(Math.min(1, p * 1.6));
+      sidebarScrim.style.opacity = String(p);
+    };
+
+    document.addEventListener(
+      "touchstart",
+      (e) => {
+        if (!isMobile() || e.touches.length !== 1 || overlayOpen()) {
+          mode = "dead";
+          return;
+        }
+        // не мешаем горизонтальной прокрутке кода/таблиц/пилюль и вводу текста
+        if (
+          e.target.closest &&
+          e.target.closest(
+            "textarea, input, pre, table, .composer-row, .attach-preview"
+          )
+        ) {
+          mode = "dead";
+          return;
+        }
+        const t = e.touches[0];
+        sx = lastX = t.clientX;
+        sy = t.clientY;
+        lastT = performance.now();
+        vx = 0;
+        mode = "pending";
+      },
+      { passive: true }
+    );
+
+    document.addEventListener(
+      "touchmove",
+      (e) => {
+        if (mode === null || mode === "dead") return;
+        const t = e.touches[0];
+        const dx = t.clientX - sx;
+        const dy = t.clientY - sy;
+
+        if (mode === "pending") {
+          if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+          if (Math.abs(dx) < Math.abs(dy) * 1.3) {
+            mode = "dead"; // это вертикальный скролл
+            return;
+          }
+          const isOpen = sidebarEl.classList.contains("open");
+          if (!isOpen && dx > 0) mode = "open";
+          else if (isOpen && dx < 0) mode = "close";
+          else {
+            mode = "dead";
+            return;
+          }
+          off = sidebarEl.offsetWidth + 24;
+          sidebarEl.style.transition = "none";
+          sidebarScrim.style.transition = "none";
+          sidebarScrim.style.display = "block";
+        }
+
+        if (e.cancelable) e.preventDefault();
+
+        const now = performance.now();
+        const dt = now - lastT;
+        if (dt > 0) vx = (t.clientX - lastX) / dt;
+        lastX = t.clientX;
+        lastT = now;
+
+        const base = mode === "open" ? -off : 0;
+        setProgress(Math.max(-off, Math.min(0, base + dx)));
+      },
+      { passive: false }
+    );
+
+    const finish = () => {
+      if (mode !== "open" && mode !== "close") {
+        mode = null;
+        return;
+      }
+      const p = (curX + off) / off;
+      const shouldOpen = Math.abs(vx) > 0.4 ? vx > 0 : p > 0.5;
+      mode = null;
+
+      sidebarEl.style.transition = "";
+      sidebarEl.style.transform = "";
+      sidebarEl.style.opacity = "";
+      sidebarEl.classList.toggle("open", shouldOpen);
+
+      sidebarScrim.style.transition = "opacity .3s ease";
+      sidebarScrim.style.opacity = shouldOpen ? "1" : "0";
+      setTimeout(() => {
+        sidebarScrim.style.transition = "";
+        sidebarScrim.style.opacity = "";
+        sidebarScrim.style.display = "";
+        sidebarScrim.classList.toggle(
+          "open",
+          sidebarEl.classList.contains("open")
+        );
+      }, 300);
+    };
+
+    document.addEventListener("touchend", finish);
+    document.addEventListener("touchcancel", finish);
+  })();
+
+  // высота композера -> отступ треда (композер и топбар лежат поверх ленты)
+  if (window.ResizeObserver && composerWrap && mainEl) {
+    new ResizeObserver(() => {
+      mainEl.style.setProperty("--composer-h", composerWrap.offsetHeight + "px");
+    }).observe(composerWrap);
+  }
+
   function renderAll() {
     renderChatList();
     renderMessages();
@@ -1200,6 +1621,7 @@
   applyProfileToUI();
   setToggle(reasoningToggle, reasoningOn);
   setToggle(roleplayToggle, roleplayOn);
+  renderModelUI();
   renderAll();
   updateSendBtnState();
 })();
