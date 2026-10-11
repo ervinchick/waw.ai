@@ -1,13 +1,13 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "waw_web_state_v1"; // СТАРЫЙ блок с локальной историей: только читаем, не пишем
-  const SETTINGS_KEY = "waw_settings_v1"; // настройки устройства
-  const MIGRATED_KEY = "waw_migrated_v1"; // {локальныйЧатId: userId} — что уже перенесено в облако
-  const DECLINED_KEY = "waw_migration_declined_v1"; // {userId: true}
-  const LAST_CHAT_KEY = "waw_last_chat_v1"; // {userId: chatId}
+  const STORAGE_KEY = "waw_web_state_v1";
+  const SETTINGS_KEY = "waw_settings_v1";
+  const MIGRATED_KEY = "waw_migrated_v1";
+  const DECLINED_KEY = "waw_migration_declined_v1";
+  const LAST_CHAT_KEY = "waw_last_chat_v1";
   const API_ENDPOINT = "https://forwaw-ai.ervin-mandarin.workers.dev/chat";
-  const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // исходник; перед сохранением сжимаем
+  const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
   const MAX_IMAGE_SIDE = 1280;
 
   const ACCENT_ICONS = {
@@ -19,7 +19,6 @@
     rose: "mainicon4.png",
   };
 
-  // UUID: id диалогов и сообщений совпадают с id строк в Supabase
   const uid = () => {
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
     const b = crypto.getRandomValues(new Uint8Array(16));
@@ -29,68 +28,34 @@
     return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
   };
 
-  // строго возрастающее время: порядок сообщений в облаке не «плывёт»
   let lastTs = 0;
   const nextTs = () => (lastTs = Math.max(Date.now(), lastTs + 1));
 
-  /* =========================================================
-     МОДЕЛИ
-     ========================================================= */
+  /* ===== МОДЕЛИ ===== */
   const MODELS = [
-    {
-      id: "waw-1.3",
-      name: "WAW 1.3",
-      tier: "fast",
-      badge: "быстрая",
-      desc: "самые быстрые и короткие ответы",
-    },
-    {
-      id: "waw-1.7-extra",
-      name: "WAW 1.7 Extra",
-      tier: "std",
-      badge: "",
-      desc: "универсальная модель для повседневных задач",
-    },
-    {
-      id: "waw-2.0-pro",
-      name: "WAW 2.0 Pro",
-      tier: "pro",
-      badge: "новая",
-      desc: "самая продвинутая и новая модель",
-      note: "может быть занята в пиковые часы",
-    },
+    { id: "waw-1.3", name: "WAW 1.3", tier: "fast", badge: "быстрая", desc: "самые быстрые и короткие ответы" },
+    { id: "waw-1.7-extra", name: "WAW 1.7 Extra", tier: "std", badge: "", desc: "универсальная модель для повседневных задач" },
+    { id: "waw-2.0-pro", name: "WAW 2.0 Pro", tier: "pro", badge: "новая", desc: "самая продвинутая и новая модель", note: "может быть занята в пиковые часы" },
   ];
   const DEFAULT_MODEL = "waw-1.3";
 
-  /* =========================================================
-     STORAGE
-     ========================================================= */
+  /* ===== STORAGE ===== */
   function loadState() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (!parsed || !Array.isArray(parsed.chats) || parsed.chats.length === 0) {
-          return null;
-        }
+        if (!parsed || !Array.isArray(parsed.chats) || parsed.chats.length === 0) return null;
         parsed.settings = Object.assign(defaultState().settings, parsed.settings || {});
-        if (!parsed.chats.some((c) => c.id === parsed.activeChatId)) {
-          parsed.activeChatId = parsed.chats[0].id;
-        }
-        parsed.chats.forEach((c) => {
-          if (!Array.isArray(c.messages)) c.messages = [];
-        });
+        if (!parsed.chats.some((c) => c.id === parsed.activeChatId)) parsed.activeChatId = parsed.chats[0].id;
+        parsed.chats.forEach((c) => { if (!Array.isArray(c.messages)) c.messages = []; });
         return parsed;
       }
-    } catch (e) {
-      console.warn("WAW: failed to read stored state", e);
-    }
+    } catch (e) { console.warn("WAW: failed to read stored state", e); }
     return null;
   }
 
-  function makeChat(index) {
-    return { id: uid(), title: `Диалог ${index}`, messages: [] };
-  }
+  function makeChat(index) { return { id: uid(), title: `Диалог ${index}`, messages: [] }; }
 
   function defaultState() {
     const chat = makeChat(1);
@@ -105,62 +70,54 @@
         reasoningDefault: false,
         roleplayDefault: false,
         model: DEFAULT_MODEL,
+        streamingEnabled: true,
       },
     };
   }
 
   let state = loadState() || defaultState();
 
-  // Настройки устройства живут отдельно от старого блока истории.
   try {
     const ov = localStorage.getItem(SETTINGS_KEY);
     if (ov) Object.assign(state.settings, JSON.parse(ov));
-  } catch (e) {
-    console.warn("WAW: bad settings override", e);
+  } catch (e) { console.warn("WAW: bad settings override", e); }
+
+  if (typeof state.settings.streamingEnabled !== "boolean") {
+    state.settings.streamingEnabled = true;
   }
 
-  // Оригинальная локальная история — только для миграции в облако. Её не меняем.
-  const localChatsOriginal = (state.chats || []).filter(
-    (c) => c && Array.isArray(c.messages) && c.messages.length > 0
-  );
+  const localChatsOriginal = (state.chats || []).filter((c) => c && Array.isArray(c.messages) && c.messages.length > 0);
 
-  // Дальше чаты живут в памяти и в облаке; до входа показываем пустой диалог.
   {
     const blank = makeChat(1);
     state.chats = [blank];
     state.activeChatId = blank.id;
   }
-  if (!MODELS.some((m) => m.id === state.settings.model)) {
-    state.settings.model = DEFAULT_MODEL;
-  }
+  if (!MODELS.some((m) => m.id === state.settings.model)) state.settings.model = DEFAULT_MODEL;
+
   let reasoningOn = state.settings.reasoningDefault;
   let roleplayOn = state.settings.roleplayDefault;
   let isGenerating = false;
   let typingChatId = null;
   let pendingImage = null;
-  let cloudUser = null; // {id, email} после входа
-  let bootstrapId = null; // id пользователя, чьи данные грузим/загрузили
-  const chatQueues = new WeakMap(); // последовательная запись в облако по каждому чату
+  let cloudUser = null;
+  let bootstrapId = null;
+  let currentThinkingEl = null;
+  let currentAbortController = null;
+  const chatQueues = new WeakMap();
   const loadingChats = new WeakMap();
   const Cloud = window.WAWCloud;
 
-  // Чаты больше НЕ пишутся в localStorage — они хранятся в облаке (Supabase).
-  // Старый блок waw_web_state_v1 остаётся нетронутым: это резервная копия оригинала.
   function save() {
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
-    } catch (e) {
-      console.warn("WAW: failed to persist settings", e);
-    }
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings)); }
+    catch (e) { console.warn("WAW: failed to persist settings", e); }
   }
 
   function getActiveChat() {
     return state.chats.find((c) => c.id === state.activeChatId) || state.chats[0];
   }
 
-  /* =========================================================
-     DOM
-     ========================================================= */
+  /* ===== DOM ===== */
   const $ = (id) => document.getElementById(id);
 
   const chatListEl = $("chatList");
@@ -211,6 +168,7 @@
   const accentSwatches = $("accentSwatches");
   const themeSegmented = $("themeSegmented");
 
+  const streamingSwitch = $("streamingSwitch");
   const reasoningDefaultSwitch = $("reasoningDefaultSwitch");
   const roleplayDefaultSwitch = $("roleplayDefaultSwitch");
 
@@ -242,10 +200,7 @@
 
   function closeModal(result) {
     wawModalScrim.classList.remove("open");
-    if (modalResolver) {
-      modalResolver(result);
-      modalResolver = null;
-    }
+    if (modalResolver) { modalResolver(result); modalResolver = null; }
   }
 
   wawModalCancel.addEventListener("click", () => closeModal(false));
@@ -254,11 +209,8 @@
     if (e.target === wawModalScrim) closeModal(false);
   });
 
-  /* =========================================================
-     MARKDOWN
-     ========================================================= */
+  /* ===== MARKDOWN ===== */
   if (window.DOMPurify) {
-    // ссылки из ответов открываем в новой вкладке
     DOMPurify.addHook("afterSanitizeAttributes", (node) => {
       if (node.tagName === "A") {
         node.setAttribute("target", "_blank");
@@ -272,7 +224,11 @@
     if (window.marked && window.DOMPurify) {
       const parse = marked.parse || marked;
       const html = parse(text, { breaks: true, gfm: true });
-      el.innerHTML = DOMPurify.sanitize(html, { ADD_ATTR: ["target"] }) + caret;
+      el.innerHTML = DOMPurify.sanitize(html, {
+        ADD_ATTR: ["target", "data-icon"],
+        ADD_TAGS: ["i"],
+      }) + caret;
+      if (window.WAW_enhanceIcons) window.WAW_enhanceIcons(el);
     } else {
       el.textContent = text + (withCaret ? "▌" : "");
     }
@@ -283,11 +239,39 @@
     root.querySelectorAll("pre code").forEach((block) => {
       try { hljs.highlightElement(block); } catch (e) {}
     });
+    addCodeCopyButtons(root);
   }
 
-  /* =========================================================
-     RENAME
-     ========================================================= */
+  function addCodeCopyButtons(root) {
+    root.querySelectorAll("pre").forEach((pre) => {
+      if (pre.querySelector(".code-copy-btn")) return;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "code-copy-btn";
+      btn.setAttribute("aria-label", "Скопировать код");
+      btn.innerHTML = '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const code = pre.querySelector("code");
+        if (!code) return;
+        try {
+          await navigator.clipboard.writeText(code.textContent);
+          btn.classList.add("copied");
+          btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg>';
+          setTimeout(() => {
+            btn.classList.remove("copied");
+            btn.innerHTML = '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+          }, 1500);
+        } catch (err) { console.warn("WAW: copy code failed", err); }
+      });
+
+      pre.style.position = "relative";
+      pre.appendChild(btn);
+    });
+  }
+
+  /* ===== RENAME ===== */
   function startRenameChat(chat, titleEl) {
     const current = chat.title;
     const input = document.createElement("input");
@@ -295,7 +279,6 @@
     input.className = "chat-rename-input";
     input.value = current;
     input.maxLength = 60;
-
     titleEl.replaceWith(input);
     input.focus();
     input.select();
@@ -309,14 +292,11 @@
         chat.title = val;
         save();
         cloudRename(chat);
-        if (chat.id === state.activeChatId) {
-          topbarTitleEl.textContent = chat.title;
-        }
+        if (chat.id === state.activeChatId) topbarTitleEl.textContent = chat.title;
       }
       renderChatList();
     }
 
-    // клики и клавиши внутри поля не должны всплывать в .chat-item
     input.addEventListener("click", (e) => e.stopPropagation());
     input.addEventListener("keydown", (e) => {
       e.stopPropagation();
@@ -326,9 +306,7 @@
     input.addEventListener("blur", () => commit(true));
   }
 
-  /* =========================================================
-     CHAT LIST
-     ========================================================= */
+  /* ===== CHAT LIST ===== */
   function renderChatList() {
     chatListEl.innerHTML = "";
     state.chats.forEach((chat) => {
@@ -349,10 +327,7 @@
       edit.setAttribute("aria-label", "Переименовать диалог");
       edit.title = "Переименовать";
       edit.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
-      edit.addEventListener("click", (e) => {
-        e.stopPropagation();
-        startRenameChat(chat, title);
-      });
+      edit.addEventListener("click", (e) => { e.stopPropagation(); startRenameChat(chat, title); });
 
       const del = document.createElement("button");
       del.className = "chat-action del";
@@ -361,27 +336,19 @@
       del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>';
       del.addEventListener("click", async (e) => {
         e.stopPropagation();
-        const ok = await showConfirm(
-          "Удалить диалог?",
-          `«${chat.title}» будет удалён вместе с историей.`,
-          "Удалить"
-        );
+        const ok = await showConfirm("Удалить диалог?", `«${chat.title}» будет удалён вместе с историей.`, "Удалить");
         if (ok) deleteChat(chat.id);
       });
 
       actions.appendChild(edit);
       actions.appendChild(del);
-
       item.appendChild(title);
       item.appendChild(actions);
 
       item.addEventListener("click", () => selectChat(chat.id));
       item.addEventListener("keydown", (e) => {
-        if (e.target !== item) return; // не перехватываем ввод в поле переименования
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          selectChat(chat.id);
-        }
+        if (e.target !== item) return;
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectChat(chat.id); }
       });
 
       chatListEl.appendChild(item);
@@ -411,10 +378,8 @@
   function deleteChat(chatId) {
     const target = state.chats.find((c) => c.id === chatId);
     if (target) cloudDelete(target);
-
     const wasActive = chatId === state.activeChatId;
     state.chats = state.chats.filter((c) => c.id !== chatId);
-
     if (state.chats.length === 0) {
       const replacement = makeChat(1);
       state.chats = [replacement];
@@ -422,15 +387,11 @@
     } else if (wasActive) {
       state.activeChatId = state.chats[0].id;
     }
-
     save();
     renderAllAndLoad();
   }
 
-  /* =========================================================
-     VARIANTS (хранятся прямо в сообщении, переживают перезагрузку)
-     message.text / message.reasoning всегда = текущий вариант
-     ========================================================= */
+  /* ===== VARIANTS ===== */
   function ensureVariants(m) {
     if (!Array.isArray(m.variants) || m.variants.length === 0) {
       m.variants = [{ text: m.text, reasoning: m.reasoning }];
@@ -447,9 +408,7 @@
     m.reasoning = m.variants[i].reasoning;
   }
 
-  /* =========================================================
-     MESSAGE SHELL
-     ========================================================= */
+  /* ===== MESSAGE SHELL ===== */
   function buildMessageShell(m) {
     const wrap = document.createElement("div");
     wrap.className = "msg " + (m.role === "user" ? "user" : "model");
@@ -481,12 +440,29 @@
 
     if (m.role === "model") {
       body.appendChild(createMessageActions(m, body));
+    } else if (m.role === "user") {
+      body.appendChild(createUserActions(m, body));
     }
 
     return { wrap, body, textEl };
   }
 
   function createIcon(path) { return `<svg viewBox="0 0 24 24">${path}</svg>`; }
+
+  function createUserActions(message, body) {
+    const actions = document.createElement("div");
+    actions.className = "msg-actions";
+
+    const editBtn = document.createElement("button");
+    editBtn.className = "msg-action";
+    editBtn.title = "Редактировать";
+    editBtn.setAttribute("aria-label", "Редактировать");
+    editBtn.innerHTML = createIcon('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/>');
+    editBtn.addEventListener("click", () => startEditUserMessage(message, body));
+    actions.appendChild(editBtn);
+
+    return actions;
+  }
 
   function createMessageActions(message, body) {
     const actions = document.createElement("div");
@@ -539,10 +515,7 @@
 
     function updateVersionControls() {
       const total = message.variants ? message.variants.length : 1;
-      if (total <= 1) {
-        versions.style.display = "none";
-        return;
-      }
+      if (total <= 1) { versions.style.display = "none"; return; }
       const cur = message.vIndex ?? total - 1;
       versions.style.display = "flex";
       count.textContent = `${cur + 1}/${total}`;
@@ -563,7 +536,6 @@
 
     prevBtn.addEventListener("click", () => shift(-1));
     nextBtn.addEventListener("click", () => shift(1));
-
     body._updateVersions = updateVersionControls;
 
     actions.appendChild(copyBtn);
@@ -606,8 +578,128 @@
       const old = button.innerHTML;
       button.innerHTML = createIcon('<path d="M5 12l4 4L19 6"/>');
       setTimeout(() => { button.innerHTML = old; }, 1000);
-    } catch (err) {
-      console.warn("WAW: clipboard failed", err);
+    } catch (err) { console.warn("WAW: clipboard failed", err); }
+  }
+
+  /* ===== EDIT USER MESSAGE ===== */
+  function startEditUserMessage(message, body) {
+    if (isGenerating) { toast("дождись окончания ответа", true); return; }
+    const textEl = body.querySelector(".msg-text");
+    if (!textEl) return;
+    const current = message.text;
+    const ta = document.createElement("textarea");
+    ta.className = "edit-textarea";
+    ta.value = current;
+    ta.rows = Math.min(6, Math.max(2, current.split("\n").length));
+
+    textEl.replaceWith(ta);
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+
+    const actions = document.createElement("div");
+    actions.className = "edit-actions";
+    actions.innerHTML = '<button class="edit-save" type="button">Сохранить</button><button class="edit-cancel" type="button">Отмена</button>';
+    body.appendChild(actions);
+
+    ta.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") cancel();
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+    });
+
+    actions.querySelector(".edit-save").addEventListener("click", save);
+    actions.querySelector(".edit-cancel").addEventListener("click", cancel);
+
+    function cleanup() {
+      ta.remove();
+      actions.remove();
+    }
+
+    function cancel() {
+      cleanup();
+      textEl.textContent = current;
+      body.insertBefore(textEl, body.firstChild);
+      renderMarkdown(textEl, current, false);
+      highlightCode(textEl);
+    }
+
+    async function save() {
+      const newText = ta.value.trim();
+      if (!newText || newText === current) { cancel(); return; }
+      cleanup();
+      textEl.textContent = newText;
+      body.insertBefore(textEl, body.firstChild);
+      renderMarkdown(textEl, newText, false);
+      highlightCode(textEl);
+
+      message.text = newText;
+
+      const chat = getActiveChat();
+      const idx = chat.messages.findIndex((m) => m.id === message.id);
+      if (idx >= 0) chat.messages = chat.messages.slice(0, idx + 1);
+      save();
+      renderChatList();
+      renderMessages();
+
+      isGenerating = true;
+      typingChatId = chat.id;
+      updateSendBtnState();
+      renderMessages();
+
+      const modelMsg = {
+        id: uid(),
+        role: "model",
+        text: "",
+        model: state.settings.model,
+        createdAt: nextTs(),
+      };
+
+      let shell = null;
+
+      const painter = createLivePainter((raw) => {
+        if (state.activeChatId !== chat.id) return;
+        if (shell && !shell.wrap.isConnected) shell = null;
+        const live = splitReasoning(raw, true);
+        if (!shell) {
+          hideTyping();
+          shell = buildMessageShell(modelMsg);
+          shell.wrap.classList.add("streaming");
+          messagesEl.appendChild(shell.wrap);
+        }
+        const stick = isNearBottom();
+        renderVariantInPlace({ text: live.answer, reasoning: live.reasoning }, shell.body, true);
+        if (stick) threadEl.scrollTop = threadEl.scrollHeight;
+      });
+
+      try {
+        const raw = await requestReply(chat, null, painter.push);
+        painter.stop();
+        const res = splitReasoning(raw, false);
+        modelMsg.text = res.answer;
+        modelMsg.reasoning = res.reasoning;
+        ensureVariants(modelMsg);
+        chat.messages.push(modelMsg);
+        save();
+        cloudSaveMessage(chat, modelMsg);
+
+        if (state.activeChatId !== chat.id) return;
+        hideTyping();
+        if (shell && !shell.wrap.isConnected) shell = null;
+        if (!shell) { shell = buildMessageShell(modelMsg); messagesEl.appendChild(shell.wrap); }
+        shell.wrap.classList.remove("streaming");
+        renderVariantInPlace(modelMsg, shell.body, false);
+        scrollThreadToBottom();
+      } catch (err) {
+        painter.stop();
+        console.error("WAW: edit->reply failed", err);
+        hideTyping();
+        alert("не удалось получить ответ: " + (err && err.message ? err.message : "ошибка"));
+      } finally {
+        painter.stop();
+        hideTyping();
+        isGenerating = false;
+        typingChatId = null;
+        updateSendBtnState();
+      }
     }
   }
 
@@ -618,9 +710,7 @@
     if (index === -1) return;
     if (!chat.messages.slice(0, index).some((m) => m.role === "user")) return;
 
-    const wrap = messagesEl.querySelector(
-      `.msg[data-message-id="${originalMessage.id}"]`
-    );
+    const wrap = messagesEl.querySelector(`.msg[data-message-id="${originalMessage.id}"]`);
     const body = wrap && wrap.querySelector(".msg-body");
     const textEl = wrap && wrap.querySelector(".msg-text");
     if (!body || !textEl) return;
@@ -634,27 +724,17 @@
       if (!wrap.isConnected) return;
       const live = splitReasoning(raw, true);
       const stick = isNearBottom();
-      renderVariantInPlace(
-        { text: live.answer, reasoning: live.reasoning },
-        body,
-        true
-      );
+      renderVariantInPlace({ text: live.answer, reasoning: live.reasoning }, body, true);
       if (stick) threadEl.scrollTop = threadEl.scrollHeight;
     });
 
     try {
-      const raw = await requestReply(
-        chat.messages.slice(0, index),
-        null,
-        painter.push
-      );
+      const raw = await requestReply(chat.messages.slice(0, index), null, painter.push);
       painter.stop();
-
       const result = splitReasoning(raw, false);
       const variant = { text: result.answer, reasoning: result.reasoning };
 
       if (originalMessage.error) {
-        // вместо сообщения об ошибке ставим нормальный ответ
         originalMessage.error = false;
         originalMessage.variants = [variant];
         originalMessage.vIndex = 0;
@@ -668,17 +748,13 @@
 
       renderVariantInPlace(originalMessage, body, false);
       if (body._updateVersions) body._updateVersions();
-
       save();
       scrollThreadToBottom();
     } catch (err) {
       painter.stop();
       console.error("WAW: retry failed", err);
-      renderVariantInPlace(originalMessage, body, false); // возвращаем прежний текст
-      alert(
-        "не удалось переписать ответ: " +
-          (err && err.message ? err.message : "ошибка")
-      );
+      renderVariantInPlace(originalMessage, body, false);
+      alert("не удалось переписать ответ: " + (err && err.message ? err.message : "ошибка"));
     } finally {
       wrap.classList.remove("streaming");
       isGenerating = false;
@@ -686,58 +762,35 @@
     }
   }
 
-  /* =========================================================
-     ПРИВЕТСТВИЕ
-     ========================================================= */
+  /* ===== ПРИВЕТСТВИЕ ===== */
   const EMPTY_GREETINGS = [
-    "не хочешь поговорить?",
-    "о чём поговорим?",
-    "с чего начнём?",
-    "я тут. что скажешь?",
-    "есть что обсудить?",
-    "давай поболтаем",
-    "как ты сегодня?",
-    "что на душе?",
-    "как настроение?",
-    "что нового?",
-    "ну что, поговорим?",
-    "я слушаю",
-    "давай, удиви меня",
-    "рассказывай",
-    "о чём думаешь?",
-    "что тебя занимает?",
-    "есть мысли?",
-    "я на связи",
-    "waw тут. чем займёмся?",
-    "я готов слушать",
+    "не хочешь поговорить?", "о чём поговорим?", "с чего начнём?", "я тут. что скажешь?",
+    "есть что обсудить?", "давай поболтаем", "как ты сегодня?", "что на душе?",
+    "как настроение?", "что нового?", "ну что, поговорим?", "я слушаю",
+    "давай, удиви меня", "рассказывай", "о чём думаешь?", "что тебя занимает?",
+    "есть мысли?", "я на связи", "waw тут. чем займёмся?", "я готов слушать",
   ];
 
   function pickGreeting() {
     const name = state.settings.displayName && state.settings.displayName !== "Ты"
-      ? state.settings.displayName
-      : null;
-
+      ? state.settings.displayName : null;
     const phrase = EMPTY_GREETINGS[Math.floor(Math.random() * EMPTY_GREETINGS.length)];
-
     if (name && Math.random() < 0.3) return `${name}, ${phrase}`;
     return phrase;
   }
 
-  /* =========================================================
-     RENDER MESSAGES
-     ========================================================= */
+  /* ===== RENDER MESSAGES ===== */
   function renderMessages() {
     const chat = getActiveChat();
     topbarTitleEl.textContent = chat.title;
     messagesEl.innerHTML = "";
+    currentThinkingEl = null;
 
     if (chat.persisted && !chat.loaded) {
       emptyStateEl.style.display = "none";
       const note = document.createElement("div");
       note.className = "chat-loading";
-      note.textContent = chat.loadFailed
-        ? "не получилось загрузить диалог. выбери его ещё раз"
-        : "загружаю диалог…";
+      note.textContent = chat.loadFailed ? "не получилось загрузить диалог. выбери его ещё раз" : "загружаю диалог…";
       messagesEl.appendChild(note);
       return;
     }
@@ -758,9 +811,7 @@
       messagesEl.appendChild(wrap);
     });
 
-    // если в этом чате ещё идёт генерация — возвращаем индикатор
     if (isGenerating && typingChatId === chat.id) showTyping();
-
     scrollThreadToBottom();
   }
 
@@ -769,12 +820,9 @@
   }
 
   function isNearBottom() {
-    return (
-      threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 140
-    );
+    return (threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 140);
   }
 
-  // схлопывает частые обновления стрима в один рендер на кадр
   function createLivePainter(paint) {
     let latest = "";
     let raf = 0;
@@ -782,33 +830,52 @@
       push(raw) {
         latest = raw;
         if (!raf) {
-          raf = requestAnimationFrame(() => {
-            raf = 0;
-            paint(latest);
-          });
+          raf = requestAnimationFrame(() => { raf = 0; paint(latest); });
         }
       },
-      stop() {
-        if (raf) {
-          cancelAnimationFrame(raf);
-          raf = 0;
-        }
-      },
+      stop() { if (raf) { cancelAnimationFrame(raf); raf = 0; } },
     };
   }
 
+  function updateThinkingPhrase(phrase) {
+    if (!currentThinkingEl) return;
+    const t = currentThinkingEl.querySelector(".thinking-text");
+    if (t) t.textContent = phrase;
+  }
+
   function showTyping() {
-    if ($("typingRow")) return;
+    if ($("typingRow")) {
+      currentThinkingEl = $("typingRow");
+      return;
+    }
     brandDot.classList.add("thinking");
     emptyStateEl.style.display = "none";
     const wrap = document.createElement("div");
     wrap.className = "msg model";
     wrap.id = "typingRow";
-    wrap.innerHTML = `
-      <div class="msg-body">
-        <div class="typing"><span></span><span></span><span></span></div>
-      </div>`;
+    wrap.innerHTML =
+      '<div class="msg-body">' +
+        '<div class="thinking">' +
+          '<span class="thinking-text">думаю…</span>' +
+          '<span class="thinking-dots"><span></span><span></span><span></span></span>' +
+        '</div>' +
+        '<div class="thinking-actions">' +
+          '<button type="button" class="stream-stop-btn" id="streamStopBtn">' +
+            '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>' +
+            'Прервать' +
+          '</button>' +
+        '</div>' +
+      '</div>';
     messagesEl.appendChild(wrap);
+    currentThinkingEl = wrap;
+
+    const stopBtn = wrap.querySelector("#streamStopBtn");
+    if (stopBtn) {
+      stopBtn.addEventListener("click", () => {
+        if (currentAbortController) currentAbortController.abort();
+      });
+    }
+
     scrollThreadToBottom();
   }
 
@@ -816,12 +883,10 @@
     brandDot.classList.remove("thinking");
     const row = $("typingRow");
     if (row) row.remove();
+    currentThinkingEl = null;
   }
 
-  /* =========================================================
-     IMAGE
-     ========================================================= */
-  // уменьшаем и пережимаем в JPEG, чтобы не забить localStorage
+  /* ===== IMAGE ===== */
   function compressImage(file) {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -841,11 +906,8 @@
           ctx.fillStyle = "#fff";
           ctx.fillRect(0, 0, w, h);
           ctx.drawImage(img, 0, 0, w, h);
-          try {
-            resolve(canvas.toDataURL("image/jpeg", 0.85));
-          } catch (e) {
-            resolve(original);
-          }
+          try { resolve(canvas.toDataURL("image/jpeg", 0.85)); }
+          catch (e) { resolve(original); }
         };
         img.src = original;
       };
@@ -859,19 +921,10 @@
     const file = fileInput.files && fileInput.files[0];
     fileInput.value = "";
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      alert("Можно прикрепить только изображение");
-      return;
-    }
-    if (file.size > MAX_IMAGE_BYTES) {
-      alert("Максимум 10 МБ");
-      return;
-    }
+    if (!file.type.startsWith("image/")) { alert("Можно прикрепить только изображение"); return; }
+    if (file.size > MAX_IMAGE_BYTES) { alert("Максимум 10 МБ"); return; }
     const dataUrl = await compressImage(file);
-    if (!dataUrl) {
-      alert("Не удалось прочитать изображение");
-      return;
-    }
+    if (!dataUrl) { alert("Не удалось прочитать изображение"); return; }
     pendingImage = { dataUrl: dataUrl, name: file.name };
     attachPreviewImg.src = dataUrl;
     attachPreview.hidden = false;
@@ -889,9 +942,7 @@
     updateSendBtnState();
   });
 
-  /* =========================================================
-     SEND
-     ========================================================= */
+  /* ===== SEND ===== */
   function autoResizeInput() {
     messageInput.style.height = "auto";
     messageInput.style.height = Math.min(messageInput.scrollHeight, 180) + "px";
@@ -909,7 +960,7 @@
     if ((!text && !imageToSend) || isGenerating) return;
 
     const chat = getActiveChat();
-    if (!cloudUser || (chat.persisted && !chat.loaded)) return; // нужен вход и загруженный диалог
+    if (!cloudUser || (chat.persisted && !chat.loaded)) return;
 
     if (chat.messages.length === 0 && chat.title.startsWith("Диалог")) {
       const base = text || "Изображение";
@@ -925,7 +976,6 @@
     };
     chat.messages.push(userMsg);
     cloudSaveMessage(chat, userMsg);
-
     clearPendingImage();
 
     save();
@@ -933,13 +983,12 @@
 
     isGenerating = true;
     typingChatId = chat.id;
-    renderMessages(); // покажет индикатор набора
+    renderMessages();
 
     messageInput.value = "";
     autoResizeInput();
     updateSendBtnState();
 
-    // пока шёл ответ, диалог могли сменить или удалить
     const stillThere = () => state.chats.includes(chat);
     const isVisible = () => stillThere() && state.activeChatId === chat.id;
 
@@ -952,47 +1001,35 @@
     };
     let shell = null;
 
-    // живой рендер: текст появляется по мере генерации
     const painter = createLivePainter((raw) => {
       if (!isVisible()) return;
       if (shell && !shell.wrap.isConnected) shell = null;
-
       const live = splitReasoning(raw, true);
-
       if (!shell) {
         hideTyping();
         shell = buildMessageShell(msg);
         shell.wrap.classList.add("streaming");
         messagesEl.appendChild(shell.wrap);
       }
-
       const stick = isNearBottom();
-      renderVariantInPlace(
-        { text: live.answer, reasoning: live.reasoning },
-        shell.body,
-        true
-      );
+      renderVariantInPlace({ text: live.answer, reasoning: live.reasoning }, shell.body, true);
       if (stick) threadEl.scrollTop = threadEl.scrollHeight;
     });
 
-    const finalize = (raw, isError) => {
+    const finalize = (raw, isError, interrupted) => {
       painter.stop();
       if (!stillThere()) return;
-
-      const res = isError
-        ? { answer: raw, reasoning: undefined }
-        : splitReasoning(raw, false);
-
+      const res = isError ? { answer: raw, reasoning: undefined } : splitReasoning(raw, false);
       msg.text = res.answer;
       msg.reasoning = res.reasoning;
       if (isError) msg.error = true;
+      if (interrupted) msg.interrupted = true;
       ensureVariants(msg);
       chat.messages.push(msg);
       save();
       cloudSaveMessage(chat, msg);
 
       if (!isVisible()) return;
-
       hideTyping();
       if (shell && !shell.wrap.isConnected) shell = null;
       if (!shell) {
@@ -1000,28 +1037,31 @@
         messagesEl.appendChild(shell.wrap);
       }
       shell.wrap.classList.remove("streaming");
-
       const stick = isNearBottom();
       renderVariantInPlace(msg, shell.body, false);
+      if (interrupted) showContinueButton(msg, shell.body);
       if (stick) scrollThreadToBottom();
     };
 
     try {
       const raw = await requestReply(chat, imageToSend, painter.push);
-      finalize(raw, false);
+      finalize(raw, false, false);
     } catch (err) {
       console.error("WAW: reply failed", err);
-
+      const isAbort = err && err.name === "AbortError";
       const partial = err && err.partial ? err.partial : "";
-      if (partial.trim()) {
-        // ответ оборвался на середине — оставляем то, что успело прийти
-        finalize(partial + "\n\n_…ответ оборвался_", false);
+
+      if (isAbort) {
+        finalize(partial.trim() ? partial : "(остановлено)", false, true);
+      } else if (partial.trim()) {
+        finalize(partial + "\n\n_…ответ оборвался_", false, false);
       } else {
         finalize(
           "не удалось получить ответ (" +
             (err && err.message ? err.message : "неизвестная ошибка") +
             "). попробуй ещё раз чуть позже",
-          true
+          true,
+          false
         );
       }
     } finally {
@@ -1029,18 +1069,32 @@
       hideTyping();
       isGenerating = false;
       typingChatId = null;
+      currentAbortController = null;
       updateSendBtnState();
       if (!isMobile()) messageInput.focus();
     }
   }
 
-  /* =========================================================
-     API (потоковый ответ, NDJSON)
-     ========================================================= */
+  function showContinueButton(msg, body) {
+    if (!body) return;
+    if (body.querySelector(".stream-continue-btn")) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "stream-continue-btn";
+    btn.textContent = "Продолжить";
+    btn.addEventListener("click", async () => {
+      btn.remove();
+      if (isGenerating) return;
+      msg.interrupted = false;
+      messageInput.value = "продолжи";
+      sendMessage();
+    });
+    body.appendChild(btn);
+  }
+
+  /* ===== API ===== */
   async function requestReply(source, imagePayload, onUpdate) {
     const chatMessages = Array.isArray(source) ? source : source.messages;
-
-    // сообщения-ошибки в историю модели не отправляем
     const usable = chatMessages.filter((m) => m.text && !m.error);
 
     const history = usable.map((m) => ({
@@ -1048,7 +1102,6 @@
       text: m.text,
     }));
 
-    // картинка последнего user-сообщения (в том числе при «переписать ответ»)
     let image = imagePayload ? imagePayload.dataUrl : null;
     if (!image) {
       for (let i = usable.length - 1; i >= 0; i--) {
@@ -1069,6 +1122,9 @@
       stream: true,
     });
 
+    const abort = new AbortController();
+    currentAbortController = abort;
+
     const post = (token) =>
       fetch(API_ENDPOINT, {
         method: "POST",
@@ -1077,6 +1133,7 @@
           Authorization: "Bearer " + token,
         },
         body: payload,
+        signal: abort.signal,
       });
 
     let token = await Cloud.getAccessToken(false);
@@ -1085,7 +1142,6 @@
     let res = await post(token);
 
     if (res.status === 401) {
-      // токен мог протухнуть — обновляем сессию и пробуем один раз
       token = await Cloud.getAccessToken(true);
       if (token) res = await post(token);
     }
@@ -1110,6 +1166,7 @@
       let ev;
       try { ev = JSON.parse(line); } catch (e) { return; }
       if (ev.error) throw new Error(ev.error);
+      if (typeof ev.s === "string") updateThinkingPhrase(ev.s);
       if (typeof ev.t === "string") {
         acc += ev.t;
         if (onUpdate) onUpdate(acc);
@@ -1127,7 +1184,6 @@
           const { value, done } = await reader.read();
           if (done) break;
           buf += decoder.decode(value, { stream: true });
-
           let nl;
           while ((nl = buf.indexOf("\n")) !== -1) {
             const line = buf.slice(0, nl);
@@ -1144,23 +1200,24 @@
 
       if (!finished) throw new Error("соединение оборвалось");
     } catch (err) {
+      if (err && err.name === "AbortError") {
+        err.partial = acc;
+        throw err;
+      }
       err.partial = acc;
       throw err;
+    } finally {
+      currentAbortController = null;
     }
 
     return acc;
   }
 
-  /* =========================================================
-     РАССУЖДЕНИЯ: «Рассуждение: … Ответ: …»
-     live=true — разбираем недописанный поток
-     ========================================================= */
-  const REASON_HEAD_RE =
-    /^\s*[*_#>\s]*(?:рассуждение|reasoning|мысли|thinking)\s*[*_]*\s*:\s*[*_]*\s*/i;
+  /* ===== REASONING SPLIT ===== */
+  const REASON_HEAD_RE = /^\s*[*_#>\s]*(?:рассуждение|reasoning|мысли|thinking)\s*[*_]*\s*:\s*[*_]*\s*/i;
   const ANSWER_MARK_RE = /[*_#>\s]*(?:ответ|answer)\s*[*_]*\s*:\s*[*_]*\s*/i;
   const MARKER_WORDS = ["рассуждение", "reasoning", "мысли", "thinking"];
 
-  // начало потока ещё может превратиться в «Рассуждение:» — не мигаем им как ответом
   function couldBeMarker(raw) {
     const t = raw.trim().toLowerCase().replace(/^[*_#>\s]+/, "");
     if (!t || t.length > 14) return false;
@@ -1168,34 +1225,25 @@
   }
 
   function splitReasoning(raw, live) {
-    if (!reasoningOn) {
-      return { answer: raw.trim(), reasoning: undefined };
-    }
-
+    if (!reasoningOn) return { answer: raw.trim(), reasoning: undefined };
     const head = raw.match(REASON_HEAD_RE);
     if (!head) {
       if (live && couldBeMarker(raw)) return { answer: "", reasoning: undefined };
       return { answer: raw.trim(), reasoning: undefined };
     }
-
     const rest = raw.slice(head[0].length);
     const mark = rest.match(ANSWER_MARK_RE);
-
     if (!mark) {
       if (live) return { reasoning: rest.trim(), answer: "" };
       return { answer: raw.trim(), reasoning: undefined };
     }
-
     const reasoning = rest.slice(0, mark.index).trim();
     const answer = rest.slice(mark.index + mark[0].length).trim();
-
     if (!answer && !live) return { answer: raw.trim(), reasoning: undefined };
     return { reasoning: reasoning || undefined, answer: answer };
   }
 
-  /* =========================================================
-     TOGGLES
-     ========================================================= */
+  /* ===== TOGGLES ===== */
   function setToggle(btn, on) {
     btn.setAttribute("aria-pressed", on ? "true" : "false");
   }
@@ -1210,28 +1258,16 @@
     setToggle(roleplayToggle, roleplayOn);
   });
 
-  /* =========================================================
-     SIDEBAR
-     ========================================================= */
-  function openSidebar() {
-    sidebarEl.classList.add("open");
-    sidebarScrim.classList.add("open");
-  }
-  function closeSidebar() {
-    sidebarEl.classList.remove("open");
-    sidebarScrim.classList.remove("open");
-  }
-  function closeSidebarOnMobile() {
-    if (window.innerWidth <= 840) closeSidebar();
-  }
+  /* ===== SIDEBAR ===== */
+  function openSidebar() { sidebarEl.classList.add("open"); sidebarScrim.classList.add("open"); }
+  function closeSidebar() { sidebarEl.classList.remove("open"); sidebarScrim.classList.remove("open"); }
+  function closeSidebarOnMobile() { if (window.innerWidth <= 840) closeSidebar(); }
 
   openSidebarBtn.addEventListener("click", openSidebar);
   closeSidebarBtn.addEventListener("click", closeSidebar);
   sidebarScrim.addEventListener("click", closeSidebar);
 
-  /* =========================================================
-     SETTINGS
-     ========================================================= */
+  /* ===== SETTINGS ===== */
   function openSettings() {
     populateSettingsForm();
     settingsScrim.classList.add("open");
@@ -1250,15 +1286,10 @@
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if (wawModalScrim.classList.contains("open")) {
-        closeModal(false);
-      } else if (settingsScrim.classList.contains("open")) {
-        closeSettings();
-      } else if (modelSheet.classList.contains("open")) {
-        closeModelSheet();
-      } else {
-        closeSidebar();
-      }
+      if (wawModalScrim.classList.contains("open")) closeModal(false);
+      else if (settingsScrim.classList.contains("open")) closeSettings();
+      else if (modelSheet.classList.contains("open")) closeModelSheet();
+      else closeSidebar();
     }
   });
 
@@ -1276,6 +1307,7 @@
       sw.classList.toggle("active", sw.dataset.accent === state.settings.accent);
     });
 
+    setSwitch(streamingSwitch, state.settings.streamingEnabled);
     setSwitch(reasoningDefaultSwitch, state.settings.reasoningDefault);
     setSwitch(roleplayDefaultSwitch, state.settings.roleplayDefault);
 
@@ -1298,6 +1330,13 @@
     state.settings.personalInstruction = val;
     piCount.textContent = String(val.length);
     save();
+  });
+
+  streamingSwitch.addEventListener("click", () => {
+    const on = streamingSwitch.getAttribute("aria-checked") !== "true";
+    state.settings.streamingEnabled = on;
+    save();
+    setSwitch(streamingSwitch, on);
   });
 
   function createThemeRipple(x, y, color) {
@@ -1323,7 +1362,6 @@
     if (!btn) return;
     const nextTheme = btn.dataset.theme;
     if (nextTheme === state.settings.theme) return;
-
     animateThemeChange(btn, () => {
       state.settings.theme = nextTheme;
       save();
@@ -1337,15 +1375,12 @@
     if (!btn) return;
     const nextAccent = btn.dataset.accent;
     if (nextAccent === state.settings.accent) return;
-
     const rect = btn.getBoundingClientRect();
     state.settings.accent = nextAccent;
     save();
     applyTheme();
     populateSettingsForm();
-
-    const newAccent = getComputedStyle(document.documentElement)
-      .getPropertyValue("--accent");
+    const newAccent = getComputedStyle(document.documentElement).getPropertyValue("--accent");
     createThemeRipple(rect.left + rect.width / 2, rect.top + rect.height / 2, newAccent);
   });
 
@@ -1370,15 +1405,12 @@
       "Удалить всё"
     );
     if (!ok) return;
-
-    try {
-      await Cloud.deleteAllConversations();
-    } catch (e) {
+    try { await Cloud.deleteAllConversations(); }
+    catch (e) {
       console.error("WAW: wipe failed", e);
       toast("не удалось удалить диалоги в облаке: " + (e && e.message ? e.message : "ошибка"));
       return;
     }
-
     try { localStorage.removeItem(SETTINGS_KEY); } catch (e) {}
     state.settings = defaultState().settings;
     const blank = makeChat(1);
@@ -1400,11 +1432,7 @@
 
   function resolveTheme() {
     const t = state.settings.theme;
-    if (t === "system") {
-      return window.matchMedia("(prefers-color-scheme: light)").matches
-        ? "light"
-        : "dark";
-    }
+    if (t === "system") return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
     return t;
   }
 
@@ -1421,13 +1449,8 @@
     const resolved = resolveTheme();
     document.body.classList.toggle("light", resolved === "light");
     themeSegmented.dataset.active = state.settings.theme;
-
-    // цвет статус-бара под выбранную тему (а не только под системную)
     const barColor = resolved === "light" ? "#FFFFFF" : "#0E0B19";
-    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
-      m.setAttribute("content", barColor);
-    });
-
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", barColor));
     updateLogo();
   }
 
@@ -1437,23 +1460,16 @@
 
   function applyProfileToUI() {
     userDisplayName.textContent = state.settings.displayName || "Ты";
-    userAvatar.textContent =
-      (state.settings.displayName || "Т").trim().charAt(0).toUpperCase() || "Т";
+    userAvatar.textContent = (state.settings.displayName || "Т").trim().charAt(0).toUpperCase() || "Т";
     const sub = document.querySelector(".profile-sub");
-    if (sub) {
-      sub.textContent = cloudUser && cloudUser.email ? cloudUser.email : "настройки и персонализация";
-    }
+    if (sub) sub.textContent = cloudUser && cloudUser.email ? cloudUser.email : "настройки и персонализация";
   }
 
   newChatBtn.addEventListener("click", createChat);
 
   deleteChatBtn.addEventListener("click", async () => {
     const chat = getActiveChat();
-    const ok = await showConfirm(
-      "Удалить диалог?",
-      `«${chat.title}» будет удалён вместе с историей.`,
-      "Удалить"
-    );
+    const ok = await showConfirm("Удалить диалог?", `«${chat.title}» будет удалён вместе с историей.`, "Удалить");
     if (ok) deleteChat(chat.id);
   });
 
@@ -1471,23 +1487,16 @@
 
   sendBtn.addEventListener("click", sendMessage);
 
-  /* =========================================================
-     ШТОРКА МОДЕЛЕЙ
-     ========================================================= */
-  function isMobile() {
-    return window.innerWidth <= 840;
-  }
-
-  function currentModel() {
-    return MODELS.find((m) => m.id === state.settings.model) || MODELS[0];
-  }
+  /* ===== MODEL SHEET ===== */
+  function isMobile() { return window.innerWidth <= 840; }
+  function currentModel() { return MODELS.find((m) => m.id === state.settings.model) || MODELS[0]; }
 
   function renderModelUI() {
     const cur = currentModel();
     modelLabel.textContent = cur.name;
     modelBtn.dataset.tier = cur.tier;
-
     modelList.innerHTML = "";
+
     MODELS.forEach((m) => {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -1516,14 +1525,11 @@
   }
 
   function openModelSheet() {
-    if (isMobile()) {
-      modelSheet.style.left = "";
-      modelSheet.style.top = "";
-    } else {
+    if (isMobile()) { modelSheet.style.left = ""; modelSheet.style.top = ""; }
+    else {
       const r = modelBtn.getBoundingClientRect();
       const w = 340;
-      modelSheet.style.left =
-        Math.max(12, Math.min(r.right - w, window.innerWidth - w - 12)) + "px";
+      modelSheet.style.left = Math.max(12, Math.min(r.right - w, window.innerWidth - w - 12)) + "px";
       modelSheet.style.top = r.bottom + 10 + "px";
     }
     modelSheet.style.transform = "";
@@ -1549,32 +1555,19 @@
     if (modelSheet.classList.contains("open")) closeModelSheet();
   });
 
-  // свайп вниз закрывает шторку моделей на мобилках
   (function initSheetDrag() {
     let y0 = null;
     let dy = 0;
-
-    modelSheet.addEventListener(
-      "touchstart",
-      (e) => {
-        if (!isMobile()) return;
-        y0 = e.touches[0].clientY;
-        dy = 0;
-        modelSheet.style.transition = "none";
-      },
-      { passive: true }
-    );
-
-    modelSheet.addEventListener(
-      "touchmove",
-      (e) => {
-        if (y0 === null) return;
-        dy = Math.max(0, e.touches[0].clientY - y0);
-        modelSheet.style.transform = `translateY(${dy}px)`;
-      },
-      { passive: true }
-    );
-
+    modelSheet.addEventListener("touchstart", (e) => {
+      if (!isMobile()) return;
+      y0 = e.touches[0].clientY; dy = 0;
+      modelSheet.style.transition = "none";
+    }, { passive: true });
+    modelSheet.addEventListener("touchmove", (e) => {
+      if (y0 === null) return;
+      dy = Math.max(0, e.touches[0].clientY - y0);
+      modelSheet.style.transform = `translateY(${dy}px)`;
+    }, { passive: true });
     const end = () => {
       if (y0 === null) return;
       y0 = null;
@@ -1587,9 +1580,7 @@
     modelSheet.addEventListener("touchcancel", end);
   })();
 
-  /* =========================================================
-     СВАЙП: сайдбар выдвигается жестом, без тяги к кнопке
-     ========================================================= */
+  /* ===== SIDEBAR SWIPE ===== */
   function overlayOpen() {
     return (
       settingsScrim.classList.contains("open") ||
@@ -1599,7 +1590,7 @@
   }
 
   (function initSidebarSwipe() {
-    let mode = null; // null | "pending" | "open" | "close" | "dead"
+    let mode = null;
     let sx = 0, sy = 0, lastX = 0, lastT = 0, vx = 0, curX = 0, off = 0;
 
     const setProgress = (x) => {
@@ -1610,98 +1601,65 @@
       sidebarScrim.style.opacity = String(p);
     };
 
-    document.addEventListener(
-      "touchstart",
-      (e) => {
-        if (!isMobile() || e.touches.length !== 1 || overlayOpen()) {
-          mode = "dead";
-          return;
-        }
-        // не мешаем горизонтальной прокрутке кода/таблиц/пилюль и вводу текста
-        if (
-          e.target.closest &&
-          e.target.closest(
-            "textarea, input, pre, table, .composer-row, .attach-preview"
-          )
-        ) {
-          mode = "dead";
-          return;
-        }
-        const t = e.touches[0];
-        sx = lastX = t.clientX;
-        sy = t.clientY;
-        lastT = performance.now();
-        vx = 0;
-        mode = "pending";
-      },
-      { passive: true }
-    );
-
-    document.addEventListener(
-      "touchmove",
-      (e) => {
-        if (mode === null || mode === "dead") return;
-        const t = e.touches[0];
-        const dx = t.clientX - sx;
-        const dy = t.clientY - sy;
-
-        if (mode === "pending") {
-          if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-          if (Math.abs(dx) < Math.abs(dy) * 1.3) {
-            mode = "dead"; // это вертикальный скролл
-            return;
-          }
-          const isOpen = sidebarEl.classList.contains("open");
-          if (!isOpen && dx > 0) mode = "open";
-          else if (isOpen && dx < 0) mode = "close";
-          else {
-            mode = "dead";
-            return;
-          }
-          off = sidebarEl.offsetWidth + 24;
-          sidebarEl.style.transition = "none";
-          sidebarScrim.style.transition = "none";
-          sidebarScrim.style.display = "block";
-        }
-
-        if (e.cancelable) e.preventDefault();
-
-        const now = performance.now();
-        const dt = now - lastT;
-        if (dt > 0) vx = (t.clientX - lastX) / dt;
-        lastX = t.clientX;
-        lastT = now;
-
-        const base = mode === "open" ? -off : 0;
-        setProgress(Math.max(-off, Math.min(0, base + dx)));
-      },
-      { passive: false }
-    );
-
-    const finish = () => {
-      if (mode !== "open" && mode !== "close") {
-        mode = null;
+    document.addEventListener("touchstart", (e) => {
+      if (!isMobile() || e.touches.length !== 1 || overlayOpen()) { mode = "dead"; return; }
+      if (e.target.closest && e.target.closest("textarea, input, pre, table, .composer-row, .attach-preview")) {
+        mode = "dead";
         return;
       }
+      const t = e.touches[0];
+      sx = lastX = t.clientX;
+      sy = t.clientY;
+      lastT = performance.now();
+      vx = 0;
+      mode = "pending";
+    }, { passive: true });
+
+    document.addEventListener("touchmove", (e) => {
+      if (mode === null || mode === "dead") return;
+      const t = e.touches[0];
+      const dx = t.clientX - sx;
+      const dy = t.clientY - sy;
+
+      if (mode === "pending") {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        if (Math.abs(dx) < Math.abs(dy) * 1.3) { mode = "dead"; return; }
+        const isOpen = sidebarEl.classList.contains("open");
+        if (!isOpen && dx > 0) mode = "open";
+        else if (isOpen && dx < 0) mode = "close";
+        else { mode = "dead"; return; }
+        off = sidebarEl.offsetWidth + 24;
+        sidebarEl.style.transition = "none";
+        sidebarScrim.style.transition = "none";
+        sidebarScrim.style.display = "block";
+      }
+
+      if (e.cancelable) e.preventDefault();
+      const now = performance.now();
+      const dt = now - lastT;
+      if (dt > 0) vx = (t.clientX - lastX) / dt;
+      lastX = t.clientX;
+      lastT = now;
+      const base = mode === "open" ? -off : 0;
+      setProgress(Math.max(-off, Math.min(0, base + dx)));
+    }, { passive: false });
+
+    const finish = () => {
+      if (mode !== "open" && mode !== "close") { mode = null; return; }
       const p = (curX + off) / off;
       const shouldOpen = Math.abs(vx) > 0.4 ? vx > 0 : p > 0.5;
       mode = null;
-
       sidebarEl.style.transition = "";
       sidebarEl.style.transform = "";
       sidebarEl.style.opacity = "";
       sidebarEl.classList.toggle("open", shouldOpen);
-
       sidebarScrim.style.transition = "opacity .3s ease";
       sidebarScrim.style.opacity = shouldOpen ? "1" : "0";
       setTimeout(() => {
         sidebarScrim.style.transition = "";
         sidebarScrim.style.opacity = "";
         sidebarScrim.style.display = "";
-        sidebarScrim.classList.toggle(
-          "open",
-          sidebarEl.classList.contains("open")
-        );
+        sidebarScrim.classList.toggle("open", sidebarEl.classList.contains("open"));
       }, 300);
     };
 
@@ -1709,22 +1667,19 @@
     document.addEventListener("touchcancel", finish);
   })();
 
-  // высота композера -> отступ треда (композер и топбар лежат поверх ленты)
   if (window.ResizeObserver && composerWrap && mainEl) {
     new ResizeObserver(() => {
       mainEl.style.setProperty("--composer-h", composerWrap.offsetHeight + "px");
     }).observe(composerWrap);
   }
 
-  /* =========================================================
-     ОБЛАКО: сессия, загрузка и запись истории, миграция
-     ========================================================= */
+  /* ===== CLOUD ===== */
   let toastTimer = null;
   let lastToastAt = 0;
 
   function toast(msg, force) {
     const now = Date.now();
-    if (!force && now - lastToastAt < 4000) return; // не спамим повторными ошибками
+    if (!force && now - lastToastAt < 4000) return;
     lastToastAt = now;
     toastEl.textContent = msg;
     toastEl.classList.add("show");
@@ -1736,17 +1691,13 @@
     try {
       const v = JSON.parse(localStorage.getItem(key));
       return v && typeof v === "object" ? v : fallback;
-    } catch (e) {
-      return fallback;
-    }
+    } catch (e) { return fallback; }
   }
 
   function writeJson(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
   }
 
-  // Операции с облаком по одному чату идут строго по очереди:
-  // сначала создаётся диалог, потом сообщения, потом правки.
   function enqueue(chat, fn, label) {
     const prev = chatQueues.get(chat) || Promise.resolve();
     const next = prev.then(fn).catch((e) => {
@@ -1800,24 +1751,18 @@
     }, "удаление");
   }
 
-  // Сообщения диалога грузим лениво — при первом открытии. Никогда не отклоняется.
   function ensureChatLoaded(chat) {
     if (!chat || !cloudUser || !chat.persisted || chat.loaded) return Promise.resolve();
     if (loadingChats.has(chat)) return loadingChats.get(chat);
-
     chat.loadFailed = false;
     const p = Cloud.loadMessages(chat.id)
-      .then((msgs) => {
-        chat.messages = msgs;
-        chat.loaded = true;
-      })
+      .then((msgs) => { chat.messages = msgs; chat.loaded = true; })
       .catch((e) => {
         chat.loadFailed = true;
         console.error("WAW: load messages failed", e);
         toast("не удалось загрузить диалог", true);
       })
       .finally(() => loadingChats.delete(chat));
-
     loadingChats.set(chat, p);
     return p;
   }
@@ -1841,7 +1786,6 @@
 
   async function loadCloudState() {
     const rows = await Cloud.listConversations();
-
     const chats = rows.map((r) => ({
       id: r.id,
       title: r.title || "Диалог",
@@ -1850,17 +1794,14 @@
       loaded: false,
     }));
     if (chats.length === 0) chats.push(makeChat(1));
-
     state.chats = chats;
     const last = readJson(LAST_CHAT_KEY, {})[cloudUser.id];
     const pick = chats.find((c) => c.id === last) || chats[chats.length - 1];
     state.activeChatId = pick.id;
-
     await ensureChatLoaded(pick);
     if (pick.persisted && !pick.loaded) throw new Error("не удалось загрузить диалог");
   }
 
-  /* ---------- миграция локальной истории ---------- */
   function pendingLocalChats() {
     if (!cloudUser) return [];
     const claimed = readJson(MIGRATED_KEY, {});
@@ -1876,7 +1817,6 @@
   async function runMigration() {
     const pending = pendingLocalChats();
     if (!pending.length || !cloudUser) return;
-
     let results;
     try {
       results = await Cloud.importLocalChats(pending, (done, total) => {
@@ -1887,27 +1827,15 @@
       toast("не удалось перенести историю: " + (e && e.message ? e.message : "ошибка"), true);
       return;
     }
-
     const claimed = readJson(MIGRATED_KEY, {});
     let ok = 0, failed = 0, dropped = 0;
     results.forEach((r) => {
-      if (r.ok) {
-        claimed[r.localId] = cloudUser.id;
-        ok++;
-        dropped += r.droppedImages || 0;
-      } else {
-        failed++;
-      }
+      if (r.ok) { claimed[r.localId] = cloudUser.id; ok++; dropped += r.droppedImages || 0; }
+      else failed++;
     });
     writeJson(MIGRATED_KEY, claimed);
-
-    try {
-      await loadCloudState();
-      renderAllAndLoad();
-    } catch (e) {
-      console.error("WAW: reload after migration failed", e);
-    }
-
+    try { await loadCloudState(); renderAllAndLoad(); }
+    catch (e) { console.error("WAW: reload after migration failed", e); }
     let text = `перенесено диалогов: ${ok}`;
     if (failed) text += `, не удалось: ${failed}`;
     if (dropped) text += `, пропущено тяжёлых картинок: ${dropped}`;
@@ -1918,54 +1846,37 @@
   async function offerMigration() {
     const pending = pendingLocalChats();
     if (!pending.length) return;
-
     const declined = readJson(DECLINED_KEY, {});
     if (declined[cloudUser.id]) return;
-
     const ok = await showConfirm(
       "Перенести историю в облако?",
       `На этом устройстве найдено диалогов: ${pending.length}. Перенести их в твой аккаунт? Оригиналы на устройстве останутся нетронутыми. Позже это можно сделать в настройках.`,
       "Перенести",
       { primary: true, cancelLabel: "Не сейчас" }
     );
-
-    if (!ok) {
-      declined[cloudUser.id] = true;
-      writeJson(DECLINED_KEY, declined);
-      return;
-    }
+    if (!ok) { declined[cloudUser.id] = true; writeJson(DECLINED_KEY, declined); return; }
     await runMigration();
   }
 
   importLocalBtn.addEventListener("click", async () => {
-    if (isGenerating) {
-      toast("дождись окончания ответа", true);
-      return;
-    }
+    if (isGenerating) { toast("дождись окончания ответа", true); return; }
     importLocalBtn.disabled = true;
-    try {
-      await runMigration();
-    } finally {
-      importLocalBtn.disabled = false;
-      updateImportButton();
-    }
+    try { await runMigration(); }
+    finally { importLocalBtn.disabled = false; updateImportButton(); }
   });
 
   signOutBtn.addEventListener("click", async () => {
     await Cloud.signOut();
-    handleSession(null); // на случай, если событие SIGNED_OUT не пришло
+    handleSession(null);
   });
 
-  /* ---------- сессия ---------- */
   function signedOutCleanup() {
     cloudUser = null;
     bootstrapId = null;
     typingChatId = null;
-
     const blank = makeChat(1);
     state.chats = [blank];
     state.activeChatId = blank.id;
-
     clearPendingImage();
     messageInput.value = "";
     autoResizeInput();
@@ -1985,11 +1896,9 @@
       Cloud.showAuth();
       return;
     }
-
     const u = session.user;
-    if (bootstrapId === u.id) return; // обновление токена / повторное событие
-
-    if (bootstrapId && bootstrapId !== u.id) signedOutCleanup(); // сменился аккаунт
+    if (bootstrapId === u.id) return;
+    if (bootstrapId && bootstrapId !== u.id) signedOutCleanup();
 
     bootstrapId = u.id;
     cloudUser = {
@@ -1998,10 +1907,8 @@
     };
 
     Cloud.showLoading("Загружаем твои диалоги…");
-
-    try {
-      await loadCloudState();
-    } catch (e) {
+    try { await loadCloudState(); }
+    catch (e) {
       console.error("WAW: cloud bootstrap failed", e);
       cloudUser = null;
       bootstrapId = null;
@@ -2016,7 +1923,6 @@
     renderAll();
     updateSendBtnState();
     Cloud.hideAuth();
-
     offerMigration();
   }
 
