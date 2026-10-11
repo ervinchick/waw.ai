@@ -23,7 +23,7 @@
 
 <div class="ambient" aria-hidden="true"></div>
 
-<!-- Экран входа (виден, пока нет сессии Supabase) -->
+<!-- Экран входа -->
 <div class="auth-screen" id="authScreen" data-state="loading">
   <div class="auth-card">
     <div class="auth-logo"><img src="mainicon2.png" alt="WAW"></div>
@@ -179,7 +179,7 @@
   </main>
 </div>
 
-<!-- Шторка выбора модели: на мобилках снизу, на десктопе — под кнопкой -->
+<!-- Шторка моделей -->
 <div class="model-scrim" id="modelScrim"></div>
 <div class="model-sheet" id="modelSheet" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Выбор модели">
   <div class="sheet-grab"></div>
@@ -250,6 +250,15 @@
 
       <section class="settings-section">
         <h3>Поведение</h3>
+
+        <label class="field row">
+          <span>
+            <span class="field-label">Показывать постепенно</span>
+            <span class="field-hint">Печатать ответ по мере генерации, а не выводить целиком</span>
+          </span>
+          <button class="switch" id="streamingSwitch" role="switch" aria-checked="true"><span class="switch-knob"></span></button>
+        </label>
+
         <label class="field row">
           <span>
             <span class="field-label">Рассуждения по умолчанию</span>
@@ -257,6 +266,7 @@
           </span>
           <button class="switch" id="reasoningDefaultSwitch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
         </label>
+
         <label class="field row">
           <span>
             <span class="field-label">Roleplay по умолчанию</span>
@@ -291,6 +301,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0"></script>
 <script src="cloud.js"></script>
+<script src="icons.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
