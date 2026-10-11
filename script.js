@@ -1,7 +1,11 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "waw_web_state_v1";
+  const STORAGE_KEY = "waw_web_state_v1"; // СТАРЫЙ блок с локальной историей: только читаем, не пишем
+  const SETTINGS_KEY = "waw_settings_v1"; // настройки устройства
+  const MIGRATED_KEY = "waw_migrated_v1"; // {локальныйЧатId: userId} — что уже перенесено в облако
+  const DECLINED_KEY = "waw_migration_declined_v1"; // {userId: true}
+  const LAST_CHAT_KEY = "waw_last_chat_v1"; // {userId: chatId}
   const API_ENDPOINT = "https://forwaw-ai.ervin-mandarin.workers.dev/chat";
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // исходник; перед сохранением сжимаем
   const MAX_IMAGE_SIDE = 1280;
@@ -15,7 +19,19 @@
     rose: "mainicon4.png",
   };
 
-  const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // UUID: id диалогов и сообщений совпадают с id строк в Supabase
+  const uid = () => {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  };
+
+  // строго возрастающее время: порядок сообщений в облаке не «плывёт»
+  let lastTs = 0;
+  const nextTs = () => (lastTs = Math.max(Date.now(), lastTs + 1));
 
   /* =========================================================
      МОДЕЛИ
@@ -94,6 +110,26 @@
   }
 
   let state = loadState() || defaultState();
+
+  // Настройки устройства живут отдельно от старого блока истории.
+  try {
+    const ov = localStorage.getItem(SETTINGS_KEY);
+    if (ov) Object.assign(state.settings, JSON.parse(ov));
+  } catch (e) {
+    console.warn("WAW: bad settings override", e);
+  }
+
+  // Оригинальная локальная история — только для миграции в облако. Её не меняем.
+  const localChatsOriginal = (state.chats || []).filter(
+    (c) => c && Array.isArray(c.messages) && c.messages.length > 0
+  );
+
+  // Дальше чаты живут в памяти и в облаке; до входа показываем пустой диалог.
+  {
+    const blank = makeChat(1);
+    state.chats = [blank];
+    state.activeChatId = blank.id;
+  }
   if (!MODELS.some((m) => m.id === state.settings.model)) {
     state.settings.model = DEFAULT_MODEL;
   }
@@ -102,24 +138,19 @@
   let isGenerating = false;
   let typingChatId = null;
   let pendingImage = null;
+  let cloudUser = null; // {id, email} после входа
+  let bootstrapId = null; // id пользователя, чьи данные грузим/загрузили
+  const chatQueues = new WeakMap(); // последовательная запись в облако по каждому чату
+  const loadingChats = new WeakMap();
+  const Cloud = window.WAWCloud;
 
+  // Чаты больше НЕ пишутся в localStorage — они хранятся в облаке (Supabase).
+  // Старый блок waw_web_state_v1 остаётся нетронутым: это резервная копия оригинала.
   function save() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
     } catch (e) {
-      // localStorage переполнен (обычно из-за картинок) — выкидываем старые картинки
-      try {
-        const active = getActiveChat();
-        const keep = active.messages[active.messages.length - 1];
-        state.chats.forEach((c) =>
-          c.messages.forEach((m) => {
-            if (m.image && m !== keep) m.image = null;
-          })
-        );
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      } catch (e2) {
-        console.warn("WAW: failed to persist state", e2);
-      }
+      console.warn("WAW: failed to persist settings", e);
     }
   }
 
@@ -184,6 +215,10 @@
   const roleplayDefaultSwitch = $("roleplayDefaultSwitch");
 
   const wipeDataBtn = $("wipeDataBtn");
+  const accountEmailEl = $("accountEmail");
+  const signOutBtn = $("signOutBtn");
+  const importLocalBtn = $("importLocalBtn");
+  const toastEl = $("wawToast");
 
   const wawModalScrim = $("wawModalScrim");
   const wawModalTitle = $("wawModalTitle");
@@ -193,10 +228,14 @@
 
   let modalResolver = null;
 
-  function showConfirm(title, text, confirmLabel) {
+  function showConfirm(title, text, confirmLabel, opts) {
+    const o = opts || {};
     wawModalTitle.textContent = title;
     wawModalText.textContent = text;
     wawModalConfirm.textContent = confirmLabel || "Удалить";
+    wawModalConfirm.classList.toggle("danger", !o.primary);
+    wawModalConfirm.classList.toggle("primary", !!o.primary);
+    wawModalCancel.textContent = o.cancelLabel || "Отмена";
     wawModalScrim.classList.add("open");
     return new Promise((resolve) => { modalResolver = resolve; });
   }
@@ -269,6 +308,7 @@
       if (ok && val && val !== current) {
         chat.title = val;
         save();
+        cloudRename(chat);
         if (chat.id === state.activeChatId) {
           topbarTitleEl.textContent = chat.title;
         }
@@ -350,8 +390,11 @@
 
   function selectChat(chatId) {
     state.activeChatId = chatId;
+    const chat = getActiveChat();
+    if (chat) chat.loadFailed = false;
+    rememberActiveChat();
     save();
-    renderAll();
+    renderAllAndLoad();
     closeSidebarOnMobile();
   }
 
@@ -366,6 +409,9 @@
   }
 
   function deleteChat(chatId) {
+    const target = state.chats.find((c) => c.id === chatId);
+    if (target) cloudDelete(target);
+
     const wasActive = chatId === state.activeChatId;
     state.chats = state.chats.filter((c) => c.id !== chatId);
 
@@ -378,7 +424,7 @@
     }
 
     save();
-    renderAll();
+    renderAllAndLoad();
   }
 
   /* =========================================================
@@ -510,6 +556,7 @@
       if (next < 0 || next >= message.variants.length) return;
       setVariant(message, next);
       save();
+      cloudPatchMessage(message);
       renderVariantInPlace(message, body);
       updateVersionControls();
     }
@@ -617,6 +664,7 @@
         originalMessage.vIndex = originalMessage.variants.length - 1;
       }
       setVariant(originalMessage, originalMessage.vIndex);
+      cloudPatchMessage(originalMessage);
 
       renderVariantInPlace(originalMessage, body, false);
       if (body._updateVersions) body._updateVersions();
@@ -682,6 +730,17 @@
     const chat = getActiveChat();
     topbarTitleEl.textContent = chat.title;
     messagesEl.innerHTML = "";
+
+    if (chat.persisted && !chat.loaded) {
+      emptyStateEl.style.display = "none";
+      const note = document.createElement("div");
+      note.className = "chat-loading";
+      note.textContent = chat.loadFailed
+        ? "не получилось загрузить диалог. выбери его ещё раз"
+        : "загружаю диалог…";
+      messagesEl.appendChild(note);
+      return;
+    }
 
     if (chat.messages.length === 0) {
       emptyStateEl.style.display = "block";
@@ -850,18 +909,22 @@
     if ((!text && !imageToSend) || isGenerating) return;
 
     const chat = getActiveChat();
+    if (!cloudUser || (chat.persisted && !chat.loaded)) return; // нужен вход и загруженный диалог
 
     if (chat.messages.length === 0 && chat.title.startsWith("Диалог")) {
       const base = text || "Изображение";
       chat.title = base.slice(0, 32) + (base.length > 32 ? "…" : "");
     }
 
-    chat.messages.push({
+    const userMsg = {
+      id: uid(),
       role: "user",
       text: text || "[изображение]",
       image: imageToSend ? imageToSend.dataUrl : null,
-      createdAt: Date.now(),
-    });
+      createdAt: nextTs(),
+    };
+    chat.messages.push(userMsg);
+    cloudSaveMessage(chat, userMsg);
 
     clearPendingImage();
 
@@ -885,7 +948,7 @@
       role: "model",
       text: "",
       model: state.settings.model,
-      createdAt: Date.now(),
+      createdAt: nextTs(),
     };
     let shell = null;
 
@@ -926,6 +989,7 @@
       ensureVariants(msg);
       chat.messages.push(msg);
       save();
+      cloudSaveMessage(chat, msg);
 
       if (!isVisible()) return;
 
@@ -995,19 +1059,41 @@
       }
     }
 
-    const res = await fetch(API_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        history: history,
-        personalInstruction: state.settings.personalInstruction || "",
-        reasoning: reasoningOn,
-        roleplay: roleplayOn,
-        model: state.settings.model,
-        image: image,
-        stream: true,
-      }),
+    const payload = JSON.stringify({
+      history: history,
+      personalInstruction: state.settings.personalInstruction || "",
+      reasoning: reasoningOn,
+      roleplay: roleplayOn,
+      model: state.settings.model,
+      image: image,
+      stream: true,
     });
+
+    const post = (token) =>
+      fetch(API_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: payload,
+      });
+
+    let token = await Cloud.getAccessToken(false);
+    if (!token) throw new Error("нужно войти в аккаунт");
+
+    let res = await post(token);
+
+    if (res.status === 401) {
+      // токен мог протухнуть — обновляем сессию и пробуем один раз
+      token = await Cloud.getAccessToken(true);
+      if (token) res = await post(token);
+    }
+
+    if (res.status === 401) {
+      Cloud.signOut();
+      throw new Error("сессия недействительна — войди заново");
+    }
 
     if (!res.ok) {
       let data = null;
@@ -1192,6 +1278,9 @@
 
     setSwitch(reasoningDefaultSwitch, state.settings.reasoningDefault);
     setSwitch(roleplayDefaultSwitch, state.settings.roleplayDefault);
+
+    accountEmailEl.textContent = cloudUser ? cloudUser.email || "аккаунт" : "";
+    updateImportButton();
   }
 
   function setSwitch(el, on) {
@@ -1277,13 +1366,24 @@
   wipeDataBtn.addEventListener("click", async () => {
     const ok = await showConfirm(
       "Удалить всё?",
-      "Все диалоги, настройки и персонализация будут удалены без возможности восстановления.",
+      "Все твои диалоги в облаке и настройки будут удалены без возможности восстановления. Старая локальная копия истории на этом устройстве не затрагивается.",
       "Удалить всё"
     );
     if (!ok) return;
 
-    localStorage.removeItem(STORAGE_KEY);
-    state = defaultState();
+    try {
+      await Cloud.deleteAllConversations();
+    } catch (e) {
+      console.error("WAW: wipe failed", e);
+      toast("не удалось удалить диалоги в облаке: " + (e && e.message ? e.message : "ошибка"));
+      return;
+    }
+
+    try { localStorage.removeItem(SETTINGS_KEY); } catch (e) {}
+    state.settings = defaultState().settings;
+    const blank = makeChat(1);
+    state.chats = [blank];
+    state.activeChatId = blank.id;
     reasoningOn = state.settings.reasoningDefault;
     roleplayOn = state.settings.roleplayDefault;
     clearPendingImage();
@@ -1339,6 +1439,10 @@
     userDisplayName.textContent = state.settings.displayName || "Ты";
     userAvatar.textContent =
       (state.settings.displayName || "Т").trim().charAt(0).toUpperCase() || "Т";
+    const sub = document.querySelector(".profile-sub");
+    if (sub) {
+      sub.textContent = cloudUser && cloudUser.email ? cloudUser.email : "настройки и персонализация";
+    }
   }
 
   newChatBtn.addEventListener("click", createChat);
@@ -1612,6 +1716,310 @@
     }).observe(composerWrap);
   }
 
+  /* =========================================================
+     ОБЛАКО: сессия, загрузка и запись истории, миграция
+     ========================================================= */
+  let toastTimer = null;
+  let lastToastAt = 0;
+
+  function toast(msg, force) {
+    const now = Date.now();
+    if (!force && now - lastToastAt < 4000) return; // не спамим повторными ошибками
+    lastToastAt = now;
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), 3800);
+  }
+
+  function readJson(key, fallback) {
+    try {
+      const v = JSON.parse(localStorage.getItem(key));
+      return v && typeof v === "object" ? v : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  function writeJson(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+  }
+
+  // Операции с облаком по одному чату идут строго по очереди:
+  // сначала создаётся диалог, потом сообщения, потом правки.
+  function enqueue(chat, fn, label) {
+    const prev = chatQueues.get(chat) || Promise.resolve();
+    const next = prev.then(fn).catch((e) => {
+      console.error("WAW cloud:", label, e);
+      toast("не удалось сохранить в облаке (" + label + ")");
+    });
+    chatQueues.set(chat, next);
+    return next;
+  }
+
+  async function ensureConversation(chat) {
+    if (chat.persisted) return;
+    await Cloud.upsertConversation(chat);
+    chat.persisted = true;
+    chat.loaded = true;
+  }
+
+  function cloudSaveMessage(chat, msg) {
+    if (!cloudUser) return;
+    enqueue(chat, async () => {
+      await ensureConversation(chat);
+      await Cloud.upsertMessage(chat.id, msg);
+    }, "сообщение");
+  }
+
+  function chatOfMessage(m) {
+    return state.chats.find((c) => c.messages.includes(m));
+  }
+
+  function cloudPatchMessage(m) {
+    if (!cloudUser) return;
+    const chat = chatOfMessage(m);
+    if (!chat) return;
+    enqueue(chat, async () => {
+      await ensureConversation(chat);
+      await Cloud.patchMessage(m);
+    }, "правка ответа");
+  }
+
+  function cloudRename(chat) {
+    if (!cloudUser) return;
+    enqueue(chat, async () => {
+      if (chat.persisted) await Cloud.renameConversation(chat.id, chat.title);
+    }, "название");
+  }
+
+  function cloudDelete(chat) {
+    if (!cloudUser) return;
+    enqueue(chat, async () => {
+      if (chat.persisted) await Cloud.deleteConversation(chat.id);
+    }, "удаление");
+  }
+
+  // Сообщения диалога грузим лениво — при первом открытии. Никогда не отклоняется.
+  function ensureChatLoaded(chat) {
+    if (!chat || !cloudUser || !chat.persisted || chat.loaded) return Promise.resolve();
+    if (loadingChats.has(chat)) return loadingChats.get(chat);
+
+    chat.loadFailed = false;
+    const p = Cloud.loadMessages(chat.id)
+      .then((msgs) => {
+        chat.messages = msgs;
+        chat.loaded = true;
+      })
+      .catch((e) => {
+        chat.loadFailed = true;
+        console.error("WAW: load messages failed", e);
+        toast("не удалось загрузить диалог", true);
+      })
+      .finally(() => loadingChats.delete(chat));
+
+    loadingChats.set(chat, p);
+    return p;
+  }
+
+  function renderAllAndLoad() {
+    renderAll();
+    const chat = getActiveChat();
+    ensureChatLoaded(chat).then(() => {
+      if (getActiveChat() === chat) renderMessages();
+    });
+  }
+
+  function rememberActiveChat() {
+    if (!cloudUser) return;
+    const chat = getActiveChat();
+    if (!chat || !chat.persisted) return;
+    const map = readJson(LAST_CHAT_KEY, {});
+    map[cloudUser.id] = chat.id;
+    writeJson(LAST_CHAT_KEY, map);
+  }
+
+  async function loadCloudState() {
+    const rows = await Cloud.listConversations();
+
+    const chats = rows.map((r) => ({
+      id: r.id,
+      title: r.title || "Диалог",
+      messages: [],
+      persisted: true,
+      loaded: false,
+    }));
+    if (chats.length === 0) chats.push(makeChat(1));
+
+    state.chats = chats;
+    const last = readJson(LAST_CHAT_KEY, {})[cloudUser.id];
+    const pick = chats.find((c) => c.id === last) || chats[chats.length - 1];
+    state.activeChatId = pick.id;
+
+    await ensureChatLoaded(pick);
+    if (pick.persisted && !pick.loaded) throw new Error("не удалось загрузить диалог");
+  }
+
+  /* ---------- миграция локальной истории ---------- */
+  function pendingLocalChats() {
+    if (!cloudUser) return [];
+    const claimed = readJson(MIGRATED_KEY, {});
+    return localChatsOriginal.filter((c) => !claimed[c.id]);
+  }
+
+  function updateImportButton() {
+    const n = pendingLocalChats().length;
+    importLocalBtn.hidden = n === 0;
+    importLocalBtn.textContent = `Перенести локальную историю (${n})`;
+  }
+
+  async function runMigration() {
+    const pending = pendingLocalChats();
+    if (!pending.length || !cloudUser) return;
+
+    let results;
+    try {
+      results = await Cloud.importLocalChats(pending, (done, total) => {
+        toast(`переношу историю… ${done}/${total}`, true);
+      });
+    } catch (e) {
+      console.error("WAW: migration failed", e);
+      toast("не удалось перенести историю: " + (e && e.message ? e.message : "ошибка"), true);
+      return;
+    }
+
+    const claimed = readJson(MIGRATED_KEY, {});
+    let ok = 0, failed = 0, dropped = 0;
+    results.forEach((r) => {
+      if (r.ok) {
+        claimed[r.localId] = cloudUser.id;
+        ok++;
+        dropped += r.droppedImages || 0;
+      } else {
+        failed++;
+      }
+    });
+    writeJson(MIGRATED_KEY, claimed);
+
+    try {
+      await loadCloudState();
+      renderAllAndLoad();
+    } catch (e) {
+      console.error("WAW: reload after migration failed", e);
+    }
+
+    let text = `перенесено диалогов: ${ok}`;
+    if (failed) text += `, не удалось: ${failed}`;
+    if (dropped) text += `, пропущено тяжёлых картинок: ${dropped}`;
+    toast(text, true);
+    updateImportButton();
+  }
+
+  async function offerMigration() {
+    const pending = pendingLocalChats();
+    if (!pending.length) return;
+
+    const declined = readJson(DECLINED_KEY, {});
+    if (declined[cloudUser.id]) return;
+
+    const ok = await showConfirm(
+      "Перенести историю в облако?",
+      `На этом устройстве найдено диалогов: ${pending.length}. Перенести их в твой аккаунт? Оригиналы на устройстве останутся нетронутыми. Позже это можно сделать в настройках.`,
+      "Перенести",
+      { primary: true, cancelLabel: "Не сейчас" }
+    );
+
+    if (!ok) {
+      declined[cloudUser.id] = true;
+      writeJson(DECLINED_KEY, declined);
+      return;
+    }
+    await runMigration();
+  }
+
+  importLocalBtn.addEventListener("click", async () => {
+    if (isGenerating) {
+      toast("дождись окончания ответа", true);
+      return;
+    }
+    importLocalBtn.disabled = true;
+    try {
+      await runMigration();
+    } finally {
+      importLocalBtn.disabled = false;
+      updateImportButton();
+    }
+  });
+
+  signOutBtn.addEventListener("click", async () => {
+    await Cloud.signOut();
+    handleSession(null); // на случай, если событие SIGNED_OUT не пришло
+  });
+
+  /* ---------- сессия ---------- */
+  function signedOutCleanup() {
+    cloudUser = null;
+    bootstrapId = null;
+    typingChatId = null;
+
+    const blank = makeChat(1);
+    state.chats = [blank];
+    state.activeChatId = blank.id;
+
+    clearPendingImage();
+    messageInput.value = "";
+    autoResizeInput();
+    hideTyping();
+    closeModal(false);
+    closeSettings();
+    closeSidebar();
+    closeModelSheet();
+    applyProfileToUI();
+    renderAll();
+    updateSendBtnState();
+  }
+
+  async function handleSession(session) {
+    if (!session || !session.user) {
+      if (cloudUser || bootstrapId) signedOutCleanup();
+      Cloud.showAuth();
+      return;
+    }
+
+    const u = session.user;
+    if (bootstrapId === u.id) return; // обновление токена / повторное событие
+
+    if (bootstrapId && bootstrapId !== u.id) signedOutCleanup(); // сменился аккаунт
+
+    bootstrapId = u.id;
+    cloudUser = {
+      id: u.id,
+      email: u.email || (u.user_metadata && u.user_metadata.email) || "",
+    };
+
+    Cloud.showLoading("Загружаем твои диалоги…");
+
+    try {
+      await loadCloudState();
+    } catch (e) {
+      console.error("WAW: cloud bootstrap failed", e);
+      cloudUser = null;
+      bootstrapId = null;
+      Cloud.showError(
+        "Не удалось загрузить диалоги: " + (e && e.message ? e.message : "ошибка"),
+        () => window.location.reload()
+      );
+      return;
+    }
+
+    applyProfileToUI();
+    renderAll();
+    updateSendBtnState();
+    Cloud.hideAuth();
+
+    offerMigration();
+  }
+
   function renderAll() {
     renderChatList();
     renderMessages();
@@ -1624,4 +2032,11 @@
   renderModelUI();
   renderAll();
   updateSendBtnState();
+
+  if (Cloud) {
+    Cloud.start({ onSession: handleSession });
+  } else {
+    const t = document.getElementById("authLoadingText");
+    if (t) t.textContent = "Не удалось загрузить модуль входа. Обнови страницу.";
+  }
 })();
