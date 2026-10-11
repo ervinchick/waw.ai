@@ -17,10 +17,62 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="glass.css">
+<link rel="stylesheet" href="auth.css">
 </head>
 <body>
 
 <div class="ambient" aria-hidden="true"></div>
+
+<!-- Экран входа (виден, пока нет сессии Supabase) -->
+<div class="auth-screen" id="authScreen" data-state="loading">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="mainicon2.png" alt="WAW"></div>
+    <h1 class="auth-title">WAW</h1>
+    <p class="auth-sub">войди, чтобы история диалогов сохранялась в облаке и была доступна на любом устройстве</p>
+
+    <div class="auth-loading">
+      <div class="typing"><span></span><span></span><span></span></div>
+      <p id="authLoadingText">Загрузка…</p>
+    </div>
+
+    <div class="auth-form-wrap">
+      <div class="segmented auth-tabs" id="authTabs" role="tablist">
+        <button type="button" data-mode="signin" role="tab" class="active">Вход</button>
+        <button type="button" data-mode="signup" role="tab">Регистрация</button>
+      </div>
+
+      <button class="auth-google" id="authGoogle" type="button">
+        <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        <span>Продолжить с Google</span>
+      </button>
+
+      <div class="auth-divider"><span>или по email</span></div>
+
+      <form id="authForm" novalidate>
+        <label class="field">
+          <span class="field-label">Email</span>
+          <input type="email" id="authEmail" autocomplete="email" inputmode="email" placeholder="you@example.com" maxlength="254">
+        </label>
+        <label class="field">
+          <span class="field-label">Пароль</span>
+          <input type="password" id="authPassword" autocomplete="current-password" placeholder="минимум 8 символов" maxlength="72">
+        </label>
+        <div class="auth-msg" id="authMsg" role="status" aria-live="polite"></div>
+        <button class="auth-submit" id="authSubmit" type="submit">Войти</button>
+      </form>
+    </div>
+
+    <div class="auth-error">
+      <p id="authErrorText"></p>
+      <div class="auth-error-actions">
+        <button class="account-btn" id="authRetryBtn" type="button">Повторить</button>
+        <button class="account-btn" id="authLogoutBtn" type="button">Выйти</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="waw-toast" id="wawToast" role="status" aria-live="polite"></div>
 
 <div class="app" id="app">
 
@@ -149,6 +201,16 @@
 
     <div class="settings-body">
 
+      <section class="settings-section" id="accountSection">
+        <h3>Аккаунт</h3>
+        <div class="account-row">
+          <span class="field-label">Вошёл как</span>
+          <span class="account-email" id="accountEmail">—</span>
+        </div>
+        <button class="account-btn" id="importLocalBtn" type="button" hidden>Перенести локальную историю</button>
+        <button class="account-btn" id="signOutBtn" type="button">Выйти из аккаунта</button>
+      </section>
+
       <section class="settings-section">
         <h3>Персонализация</h3>
         <label class="field">
@@ -227,6 +289,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.5/purify.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0"></script>
+<script src="cloud.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
