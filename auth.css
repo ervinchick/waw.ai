@@ -1,0 +1,171 @@
+/* ===========================================================
+   WAW — экран входа, секция «Аккаунт», тосты.
+   Подключается после styles.css и glass.css.
+   =========================================================== */
+
+.auth-screen{
+  position:fixed; inset:0; z-index:300;
+  display:flex; align-items:center; justify-content:center;
+  padding:max(20px, env(safe-area-inset-top, 0px)) 20px max(20px, env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  overflow-y:auto;
+}
+.auth-screen[hidden]{ display:none; }
+.auth-screen::before{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:
+    radial-gradient(40% 36% at 14% 12%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 70%),
+    radial-gradient(36% 32% at 88% 24%, color-mix(in srgb, var(--accent-soft) 26%, transparent), transparent 70%),
+    radial-gradient(42% 38% at 66% 96%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%);
+}
+body.light .auth-screen::before{ opacity:.5; }
+
+.auth-card{
+  position:relative; width:100%; max-width:400px; margin:auto;
+  padding:28px 24px 24px;
+  border-radius:28px;
+  background: var(--glass-sheen), var(--glass-modal);
+  -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong);
+  border:1px solid var(--glass-edge);
+  box-shadow: var(--rim), var(--shadow-3);
+  text-align:center;
+  animation: msg-in .45s cubic-bezier(.21,.9,.35,1) both;
+}
+.auth-logo{
+  width:72px; height:72px; margin:0 auto 14px;
+  border-radius:20px; overflow:hidden;
+  box-shadow: var(--shadow-2), 0 0 40px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.auth-logo img{ width:100%; height:100%; display:block; object-fit:cover; }
+.auth-title{ font-family:var(--font-ui); font-weight:600; font-size:24px; margin:0 0 6px; color:var(--text); }
+.auth-sub{ font-size:13.5px; line-height:1.5; color:var(--text-muted); margin:0 0 20px; }
+
+/* состояния: loading | form | error */
+.auth-loading, .auth-form-wrap, .auth-error{ display:none; }
+.auth-screen[data-state="loading"] .auth-loading{ display:block; }
+.auth-screen[data-state="form"] .auth-form-wrap{ display:block; }
+.auth-screen[data-state="error"] .auth-error{ display:block; }
+.auth-screen:not([data-state="form"]) .auth-sub{ display:none; }
+
+.auth-loading{ padding:10px 0 6px; }
+.auth-loading .typing{ justify-content:center; margin-bottom:10px; }
+.auth-loading p{ margin:0; font-size:14px; color:var(--text-muted); }
+
+.auth-tabs{ margin-bottom:14px; }
+.auth-form-wrap form{ text-align:left; }
+.auth-form-wrap .field{ margin-bottom:12px; }
+
+.auth-card .field input[type="email"],
+.auth-card .field input[type="password"]{
+  width:100%;
+  background: var(--glass-input);
+  border:1px solid var(--glass-edge);
+  border-radius:var(--radius-s);
+  color:var(--text);
+  padding:12px 14px; font-size:15px;
+  outline:none;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.18);
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+.auth-card .field input:focus{
+  border-color: var(--accent);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.12), 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.auth-google{
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  width:100%; padding:12px 14px; border-radius:14px;
+  border:1px solid var(--glass-edge);
+  background: var(--glass-sheen), var(--glass-fill-strong);
+  color:var(--text); font-family:var(--font-ui); font-size:14.5px; font-weight:500;
+  box-shadow: var(--rim), var(--shadow-1);
+  transition: transform .15s ease, box-shadow .2s ease, border-color .15s ease;
+}
+.auth-google svg{ width:20px; height:20px; fill:initial; stroke:none; }
+.auth-google:hover{ transform:translateY(-1px); box-shadow: var(--rim), var(--shadow-2); }
+.auth-google:active{ transform:scale(.98); }
+
+.auth-divider{
+  display:flex; align-items:center; gap:12px; margin:16px 0;
+  font-size:12px; color:var(--text-faint);
+}
+.auth-divider::before, .auth-divider::after{ content:""; flex:1; height:1px; background:var(--glass-edge); }
+
+.auth-msg{
+  min-height:0; font-size:13px; line-height:1.45; margin:2px 0 12px;
+  border-radius:12px; padding:0; color:var(--text-muted);
+}
+.auth-msg[data-kind]:not([data-kind=""]){ padding:10px 12px; }
+.auth-msg[data-kind="error"]{ color:#ff9aab; background:rgba(224,102,122,.14); border:1px solid rgba(224,102,122,.3); }
+.auth-msg[data-kind="ok"]{ color:#7fe0a6; background:rgba(94,194,125,.14); border:1px solid rgba(94,194,125,.3); }
+.auth-msg[data-kind="info"]{ color:var(--text-muted); background:var(--glass-fill); border:1px solid var(--glass-edge); }
+body.light .auth-msg[data-kind="error"]{ color:#b3263f; }
+body.light .auth-msg[data-kind="ok"]{ color:#1d7a43; }
+
+.auth-submit, .account-btn{
+  width:100%; padding:13px 16px; border-radius:14px; border:none;
+  font-family:var(--font-ui); font-size:15px; font-weight:600;
+}
+.auth-submit{
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 78%, #fff), var(--accent));
+  color: var(--accent-ink);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.5), var(--glow-accent);
+  transition: transform .12s ease, opacity .15s ease, box-shadow .2s ease;
+}
+.auth-submit:not(:disabled):hover{ transform:translateY(-1px); }
+.auth-submit:not(:disabled):active{ transform:scale(.98); }
+.auth-submit:disabled, .auth-google:disabled{ opacity:.55; cursor:default; }
+
+.auth-error p{ margin:0 0 16px; font-size:14px; line-height:1.5; color:var(--text-muted); }
+.auth-error-actions{ display:flex; gap:8px; }
+.auth-error-actions .account-btn{ flex:1; }
+
+/* секция «Аккаунт» в настройках */
+.account-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+.account-email{
+  font-size:13.5px; color:var(--text-muted);
+  min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.account-btn{
+  display:block; margin-top:8px;
+  background: var(--glass-fill); color: var(--text);
+  border:1px solid var(--glass-edge); box-shadow: var(--rim);
+  font-size:14px; font-weight:500;
+  transition: background .15s ease, transform .1s ease;
+}
+.account-btn[hidden]{ display:none; }
+.account-btn:hover{ background: var(--glass-fill-strong); }
+.account-btn:active{ transform:scale(.98); }
+.account-btn:disabled{ opacity:.55; cursor:default; }
+
+/* подтверждение «основного» действия (например, перенос истории) */
+.waw-modal-btn.primary{
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 78%, #fff), var(--accent));
+  border-color: transparent; color: var(--accent-ink);
+}
+.waw-modal-btn.primary:hover{ filter:brightness(1.08); }
+
+/* загрузка диалога */
+.chat-loading{ padding:40px 0; text-align:center; font-size:14px; color:var(--text-faint); }
+
+/* тост */
+.waw-toast{
+  position:fixed; left:50%; z-index:400;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, 20px);
+  max-width:min(92vw, 420px);
+  padding:11px 16px; border-radius:999px;
+  font-size:13.5px; line-height:1.35; text-align:center;
+  color:var(--text);
+  background: var(--glass-sheen), var(--glass-modal);
+  -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong);
+  border:1px solid var(--glass-edge);
+  box-shadow: var(--rim), var(--shadow-2);
+  opacity:0; pointer-events:none;
+  transition: opacity .25s ease, transform .3s cubic-bezier(.32,.72,.28,1);
+}
+.waw-toast.show{ opacity:1; transform: translate(-50%, 0); }
+
+@media (max-width: 420px){
+  .auth-card{ padding:24px 18px 20px; border-radius:24px; }
+}
