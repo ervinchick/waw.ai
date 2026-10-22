@@ -445,6 +445,12 @@
     if (r2.error) throw r2.error;
   }
 
+  async function deleteMessages(ids) {
+    if (!ids.length) return;
+    const { error } = await client.from("messages").delete().in("id", ids);
+    if (error) throw error;
+  }
+
   async function upsertMessage(conversationId, m) {
     const userId = await requireUserId();
     const { error } = await client
@@ -586,6 +592,7 @@
     renameConversation,
     deleteConversation,
     deleteAllConversations,
+    deleteMessages,
     upsertMessage,
     patchMessage,
     importLocalChats,
