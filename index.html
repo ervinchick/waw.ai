@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="glass.css">
 <link rel="stylesheet" href="auth.css">
 <link rel="stylesheet" href="editor.css">
+<link rel="stylesheet" href="extras.css">
 </head>
 <body>
 
@@ -125,6 +126,9 @@
         <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
       </button>
 
+      <button class="icon-btn" id="exportChatBtn" title="Экспорт в Markdown" aria-label="Экспорт диалога">
+        <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>
+      </button>
       <button class="icon-btn" id="deleteChatBtn" title="Удалить диалог" aria-label="Удалить диалог">
         <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>
       </button>
@@ -177,6 +181,7 @@
           <button class="attach-remove" id="attachRemove" type="button" aria-label="Убрать вложение">×</button>
         </div>
 
+        <div class="templates" id="templates"></div>
         <div class="input-row">
           <textarea id="messageInput" rows="1" placeholder="Напиши WAW..." maxlength="4000"></textarea>
           <button class="send-btn" id="sendBtn" aria-label="Отправить" disabled>
@@ -184,6 +189,7 @@
           </button>
         </div>
 
+        <div class="char-counter" id="charCounter"></div>
         <input type="file" id="fileInput" accept="image/*,.pdf,text/*,.md,.csv,.json,.xml,.yml,.yaml,.js,.ts,.py,.java,.c,.cpp,.cs,.go,.rs,.php,.sql,.sh" hidden>
         <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
       </div>
@@ -289,6 +295,11 @@
         </label>
       </section>
 
+      <section class="settings-section">
+        <h3>Статистика</h3>
+        <div id="statsBox"></div>
+      </section>
+
       <section class="settings-section danger-zone">
         <h3>Данные</h3>
         <button class="danger-btn" id="wipeDataBtn">Удалить все диалоги и настройки</button>
@@ -317,5 +328,6 @@
 <script src="icons.js"></script>
 <script src="editor.js"></script>
 <script src="script.js"></script>
+<script src="extras.js"></script>
 </body>
 </html>
