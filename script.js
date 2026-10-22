@@ -9,6 +9,11 @@
   const API_ENDPOINT = "https://forwaw-ai.ervin-mandarin.workers.dev/chat";
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
   const MAX_IMAGE_SIDE = 1280;
+  const MAX_PDF_BYTES = 4 * 1024 * 1024;
+  const MAX_TEXT_FILE_BYTES = 300 * 1024;
+  const MAX_TEXT_CHARS = 30000;
+  const MAX_ATTACH_CHARS = 8500000;
+  const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|xml|ya?ml|toml|ini|log|html?|css|scss|jsx?|mjs|tsx?|py|java|kt|c|h|cpp|hpp|cs|go|rs|rb|php|swift|sh|bat|sql|lua|dart|vue|svelte|tex|srt)$/i;
 
   const ACCENT_ICONS = {
     violet: "mainicon2.png",
@@ -150,8 +155,13 @@
 
   const attachBtn = $("attachBtn");
   const fileInput = $("fileInput");
+  const cameraInput = $("cameraInput");
+  const cameraBtn = $("cameraBtn");
   const attachPreview = $("attachPreview");
   const attachPreviewImg = $("attachPreviewImg");
+  const attachFile = $("attachFile");
+  const attachFileName = $("attachFileName");
+  const attachEdit = $("attachEdit");
   const attachRemove = $("attachRemove");
 
   const settingsBtn = $("settingsBtn");
@@ -366,6 +376,14 @@
   }
 
   function createChat() {
+    const empty = state.chats.find((c) => !c.persisted && c.messages.length === 0);
+    if (empty) {
+      state.activeChatId = empty.id;
+      renderAll();
+      closeSidebarOnMobile();
+      messageInput.focus();
+      return;
+    }
     const chat = makeChat(state.chats.length + 1);
     state.chats.push(chat);
     state.activeChatId = chat.id;
@@ -417,7 +435,7 @@
     const body = document.createElement("div");
     body.className = "msg-body";
 
-    if (m.image) {
+    if (m.image && m.image.startsWith("data:image/")) {
       const img = document.createElement("img");
       img.src = m.image;
       img.className = "msg-image";
@@ -603,10 +621,10 @@
 
     ta.addEventListener("keydown", (e) => {
       if (e.key === "Escape") cancel();
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
     });
 
-    actions.querySelector(".edit-save").addEventListener("click", save);
+    actions.querySelector(".edit-save").addEventListener("click", commit);
     actions.querySelector(".edit-cancel").addEventListener("click", cancel);
 
     function cleanup() {
@@ -622,7 +640,7 @@
       highlightCode(textEl);
     }
 
-    async function save() {
+    async function commit() {
       const newText = ta.value.trim();
       if (!newText || newText === current) { cancel(); return; }
       cleanup();
@@ -635,8 +653,11 @@
 
       const chat = getActiveChat();
       const idx = chat.messages.findIndex((m) => m.id === message.id);
+      const dropped = idx >= 0 ? chat.messages.slice(idx + 1) : [];
       if (idx >= 0) chat.messages = chat.messages.slice(0, idx + 1);
       save();
+      cloudPatchMessage(message);
+      cloudDeleteMessages(chat, dropped.map((m) => m.id).filter(Boolean));
       renderChatList();
       renderMessages();
 
@@ -692,7 +713,7 @@
         painter.stop();
         console.error("WAW: edit->reply failed", err);
         hideTyping();
-        alert("не удалось получить ответ: " + (err && err.message ? err.message : "ошибка"));
+        if (!(err && err.name === "AbortError")) toast("не удалось получить ответ: " + (err && err.message ? err.message : "ошибка"), true);
       } finally {
         painter.stop();
         hideTyping();
@@ -754,7 +775,7 @@
       painter.stop();
       console.error("WAW: retry failed", err);
       renderVariantInPlace(originalMessage, body, false);
-      alert("не удалось переписать ответ: " + (err && err.message ? err.message : "ошибка"));
+      if (!(err && err.name === "AbortError")) toast("не удалось переписать ответ: " + (err && err.message ? err.message : "ошибка"), true);
     } finally {
       wrap.classList.remove("streaming");
       isGenerating = false;
@@ -829,6 +850,7 @@
     return {
       push(raw) {
         latest = raw;
+        if (!state.settings.streamingEnabled) return;
         if (!raf) {
           raf = requestAnimationFrame(() => { raf = 0; paint(latest); });
         }
@@ -886,7 +908,7 @@
     currentThinkingEl = null;
   }
 
-  /* ===== IMAGE ===== */
+  /* ===== ВЛОЖЕНИЯ ===== */
   function compressImage(file) {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -915,27 +937,89 @@
     });
   }
 
-  attachBtn.addEventListener("click", () => fileInput.click());
+  const readAsDataUrl = (file) => new Promise((res) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => res(null);
+    r.readAsDataURL(file);
+  });
 
-  fileInput.addEventListener("change", async () => {
-    const file = fileInput.files && fileInput.files[0];
-    fileInput.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/")) { alert("Можно прикрепить только изображение"); return; }
-    if (file.size > MAX_IMAGE_BYTES) { alert("Максимум 10 МБ"); return; }
-    const dataUrl = await compressImage(file);
-    if (!dataUrl) { alert("Не удалось прочитать изображение"); return; }
-    pendingImage = { dataUrl: dataUrl, name: file.name };
-    attachPreviewImg.src = dataUrl;
+  function setPending(att) {
+    pendingImage = att;
+    attachPreviewImg.src = att.kind === "image" ? att.dataUrl : "";
+    attachPreviewImg.hidden = att.kind !== "image";
+    attachEdit.hidden = att.kind !== "image";
+    attachFile.hidden = att.kind === "image";
+    attachFileName.textContent = att.name || "файл";
     attachPreview.hidden = false;
     updateSendBtnState();
-  });
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    const isImg = file.type.startsWith("image/");
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+    const isText = !isImg && !isPdf && (file.type.startsWith("text/") || TEXT_EXT.test(file.name));
+    if (!isImg && !isPdf && !isText) { toast("поддерживаются картинки, PDF и текст/код", true); return; }
+
+    if (isImg) {
+      if (file.size > MAX_IMAGE_BYTES) { toast("максимум 10 МБ", true); return; }
+      const dataUrl = await compressImage(file);
+      if (!dataUrl) { toast("не удалось прочитать изображение", true); return; }
+      setPending({ kind: "image", dataUrl: dataUrl, name: file.name });
+    } else if (isPdf) {
+      if (file.size > MAX_PDF_BYTES) { toast("PDF больше 4 МБ", true); return; }
+      let dataUrl = await readAsDataUrl(file);
+      if (!dataUrl) { toast("не удалось прочитать файл", true); return; }
+      dataUrl = dataUrl.replace(/^data:[^;]*;/, "data:application/pdf;");
+      setPending({ kind: "pdf", dataUrl: dataUrl, name: file.name });
+    } else {
+      if (file.size > MAX_TEXT_FILE_BYTES) { toast("текстовый файл больше 300 КБ", true); return; }
+      let text = "";
+      try { text = await file.text(); } catch (e) { toast("не удалось прочитать файл", true); return; }
+      if (text.includes("\u0000")) { toast("похоже на бинарный файл", true); return; }
+      setPending({ kind: "text", name: file.name, text: text.slice(0, MAX_TEXT_CHARS), cut: text.length > MAX_TEXT_CHARS });
+    }
+  }
+
+  function composeUserText(text, att) {
+    if (!att) return text;
+    if (att.kind === "image") return text || "[изображение]";
+    const head = text ? text + "\n\n" : "";
+    if (att.kind === "pdf") return head + "[файл: " + att.name + "]";
+    const longest = (att.text.match(/`+/g) || []).reduce((n, s) => Math.max(n, s.length), 0);
+    const fence = "`".repeat(Math.max(3, longest + 1));
+    return head + "[файл: " + att.name + "]\n" + fence + "\n" + att.text + (att.cut ? "\n…(файл обрезан)" : "") + "\n" + fence;
+  }
+
+  async function editPending() {
+    if (!pendingImage || pendingImage.kind !== "image" || !window.WAWEditor) return;
+    const name = pendingImage.name;
+    const out = await WAWEditor.open(pendingImage.dataUrl);
+    if (out && pendingImage) setPending({ kind: "image", dataUrl: out, name: name });
+  }
 
   function clearPendingImage() {
     pendingImage = null;
     attachPreview.hidden = true;
     attachPreviewImg.src = "";
   }
+
+  attachBtn.addEventListener("click", () => fileInput.click());
+  cameraBtn.addEventListener("click", () => cameraInput.click());
+  attachEdit.addEventListener("click", editPending);
+  attachPreviewImg.addEventListener("click", editPending);
+  [fileInput, cameraInput].forEach((inp) =>
+    inp.addEventListener("change", () => {
+      const f = inp.files && inp.files[0];
+      inp.value = "";
+      handleFile(f);
+    })
+  );
+  messageInput.addEventListener("paste", (e) => {
+    const f = e.clipboardData && e.clipboardData.files && e.clipboardData.files[0];
+    if (f) { e.preventDefault(); handleFile(f); }
+  });
 
   attachRemove.addEventListener("click", () => {
     clearPendingImage();
@@ -963,15 +1047,15 @@
     if (!cloudUser || (chat.persisted && !chat.loaded)) return;
 
     if (chat.messages.length === 0 && chat.title.startsWith("Диалог")) {
-      const base = text || "Изображение";
+      const base = text || (imageToSend && imageToSend.name) || "Вложение";
       chat.title = base.slice(0, 32) + (base.length > 32 ? "…" : "");
     }
 
     const userMsg = {
       id: uid(),
       role: "user",
-      text: text || "[изображение]",
-      image: imageToSend ? imageToSend.dataUrl : null,
+      text: composeUserText(text, imageToSend),
+      image: (imageToSend && imageToSend.dataUrl) || null,
       createdAt: nextTs(),
     };
     chat.messages.push(userMsg);
@@ -1052,7 +1136,8 @@
       const partial = err && err.partial ? err.partial : "";
 
       if (isAbort) {
-        finalize(partial.trim() ? partial : "(остановлено)", false, true);
+        const has = !!partial.trim();
+        finalize(has ? partial : "(остановлено)", !has, has);
       } else if (partial.trim()) {
         finalize(partial + "\n\n_…ответ оборвался_", false, false);
       } else {
@@ -1102,14 +1187,11 @@
       text: m.text,
     }));
 
-    let image = imagePayload ? imagePayload.dataUrl : null;
-    if (!image) {
-      for (let i = usable.length - 1; i >= 0; i--) {
-        if (usable[i].role === "user") {
-          image = usable[i].image || null;
-          break;
-        }
-      }
+    // вложения: максимум 4 последних и не больше лимита по размеру
+    let budget = MAX_ATTACH_CHARS, left = 4;
+    for (let i = usable.length - 1; i >= 0 && left > 0; i--) {
+      const img = usable[i].role === "user" && usable[i].image;
+      if (img && img.length <= budget) { history[i].image = img; budget -= img.length; left--; }
     }
 
     const payload = JSON.stringify({
@@ -1118,7 +1200,7 @@
       reasoning: reasoningOn,
       roleplay: roleplayOn,
       model: state.settings.model,
-      image: image,
+      image: null,
       stream: true,
     });
 
@@ -1200,10 +1282,6 @@
 
       if (!finished) throw new Error("соединение оборвалось");
     } catch (err) {
-      if (err && err.name === "AbortError") {
-        err.partial = acc;
-        throw err;
-      }
       err.partial = acc;
       throw err;
     } finally {
@@ -1479,7 +1557,12 @@
   });
 
   messageInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.isComposing &&
+      !window.matchMedia("(pointer: coarse)").matches
+    ) {
       e.preventDefault();
       sendMessage();
     }
@@ -1585,7 +1668,8 @@
     return (
       settingsScrim.classList.contains("open") ||
       wawModalScrim.classList.contains("open") ||
-      modelSheet.classList.contains("open")
+      modelSheet.classList.contains("open") ||
+      !!document.querySelector(".ed-scrim.open")
     );
   }
 
@@ -1749,6 +1833,13 @@
     enqueue(chat, async () => {
       if (chat.persisted) await Cloud.deleteConversation(chat.id);
     }, "удаление");
+  }
+
+  function cloudDeleteMessages(chat, ids) {
+    if (!cloudUser || !ids.length) return;
+    enqueue(chat, async () => {
+      if (chat.persisted) await Cloud.deleteMessages(ids);
+    }, "правка");
   }
 
   function ensureChatLoaded(chat) {
