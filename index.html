@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="glass.css">
 <link rel="stylesheet" href="auth.css">
+<link rel="stylesheet" href="editor.css">
 </head>
 <body>
 
@@ -144,9 +145,13 @@
     <div class="composer-wrap">
       <div class="composer" id="composer">
         <div class="composer-row">
-          <button class="pill-toggle" id="attachBtn" title="Прикрепить изображение">
-            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-            <span>Фото</span>
+          <button class="pill-toggle" id="attachBtn" title="Прикрепить файл: картинка, PDF, текст или код">
+            <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+            <span>Файл</span>
+          </button>
+          <button class="pill-toggle" id="cameraBtn" title="Сделать фото">
+            <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>
+            <span>Камера</span>
           </button>
 
           <button class="pill-toggle" id="reasoningToggle" aria-pressed="false" title="Показывать краткое рассуждение перед ответом">
@@ -162,7 +167,14 @@
 
         <div class="attach-preview" id="attachPreview" hidden>
           <img id="attachPreviewImg" alt="">
-          <button class="attach-remove" id="attachRemove" type="button" aria-label="Убрать изображение">×</button>
+          <div class="attach-file" id="attachFile" hidden>
+            <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M14 3v6h6"/></svg>
+            <span id="attachFileName"></span>
+          </div>
+          <button class="attach-edit" id="attachEdit" type="button" aria-label="Редактировать фото">
+            <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+          </button>
+          <button class="attach-remove" id="attachRemove" type="button" aria-label="Убрать вложение">×</button>
         </div>
 
         <div class="input-row">
@@ -172,7 +184,8 @@
           </button>
         </div>
 
-        <input type="file" id="fileInput" accept="image/*" hidden>
+        <input type="file" id="fileInput" accept="image/*,.pdf,text/*,.md,.csv,.json,.xml,.yml,.yaml,.js,.ts,.py,.java,.c,.cpp,.cs,.go,.rs,.php,.sql,.sh" hidden>
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
       </div>
       <div class="composer-hint">WAW может ошибаться. Проверяй важные факты.</div>
     </div>
@@ -302,6 +315,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0"></script>
 <script src="cloud.js"></script>
 <script src="icons.js"></script>
+<script src="editor.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
