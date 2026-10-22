@@ -122,6 +122,19 @@
     return state.chats.find((c) => c.id === state.activeChatId) || state.chats[0];
   }
 
+  const PINNED_KEY = "waw_pinned_v1";
+  function pinnedMap() { return readJson(PINNED_KEY, {}); }
+  function orderedChats() {
+    const p = pinnedMap();
+    return [...state.chats].sort((a, b) => (p[b.id] ? 1 : 0) - (p[a.id] ? 1 : 0));
+  }
+  function togglePin(id) {
+    const p = pinnedMap();
+    if (p[id]) delete p[id]; else p[id] = true;
+    writeJson(PINNED_KEY, p);
+    renderChatList();
+  }
+
   /* ===== DOM ===== */
   const $ = (id) => document.getElementById(id);
 
@@ -319,7 +332,7 @@
   /* ===== CHAT LIST ===== */
   function renderChatList() {
     chatListEl.innerHTML = "";
-    state.chats.forEach((chat) => {
+    orderedChats().forEach((chat) => {
       const item = document.createElement("div");
       item.className = "chat-item" + (chat.id === state.activeChatId ? " active" : "");
       item.tabIndex = 0;
@@ -350,6 +363,15 @@
         if (ok) deleteChat(chat.id);
       });
 
+      if (pinnedMap()[chat.id]) item.classList.add("pinned");
+
+      const pin = document.createElement("button");
+      pin.className = "chat-action pin" + (pinnedMap()[chat.id] ? " on" : "");
+      pin.setAttribute("aria-label", "Закрепить диалог");
+      pin.title = "Закрепить";
+      pin.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg>';
+      pin.addEventListener("click", (e) => { e.stopPropagation(); togglePin(chat.id); });
+      actions.appendChild(pin);
       actions.appendChild(edit);
       actions.appendChild(del);
       item.appendChild(title);
@@ -2036,4 +2058,10 @@
     const t = document.getElementById("authLoadingText");
     if (t) t.textContent = "Не удалось загрузить модуль входа. Обнови страницу.";
   }
+  window.WAWApp = {
+    state,
+    getActiveChat,
+    orderedChats,
+    toast,
+  };
 })();
