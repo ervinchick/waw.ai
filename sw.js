@@ -1,7 +1,7 @@
 /* WAW service worker — кэш статики.
    • HTML (навигация): всегда сначала сеть, кэш — только офлайн-фолбэк.
-   • Свои css/js с ?v=…: cache-first (новая версия = новый ?v в index.html).
-   • Прочая своя статика (иконки, manifest): stale-while-revalidate.
+   • Свои css/js/manifest: сначала сеть, кэш — офлайн-фолбэк (правки в main видны сразу).
+   • Свои картинки и иконки: stale-while-revalidate.
    • CDN-библиотеки и шрифты: stale-while-revalidate.
    • Supabase, Worker и любые другие API — НИКОГДА не кэшируются. */
 const VERSION = "waw-20261114-1";
@@ -35,9 +35,7 @@ self.addEventListener("activate", (event) => {
 function cacheable(res) {
   return res && (res.ok || res.type === "opaque");
 }
-function cacheableStrict(res) {
-  return res && res.ok;
-}
+
 
 async function networkFirst(req) {
   const cache = await caches.open(STATIC_CACHE);
@@ -46,19 +44,11 @@ async function networkFirst(req) {
     if (res.ok) cache.put(req, res.clone());
     return res;
   } catch (e) {
-    const hit = (await cache.match(req, { ignoreSearch: true })) || (await cache.match("./"));
+    const hit = (await cache.match(req, { ignoreSearch: true })) ||
+      (req.mode === "navigate" ? await cache.match("./") : undefined);
     if (hit) return hit;
     throw e;
   }
-}
-
-async function cacheFirst(req, cacheName) {
-  const cache = await caches.open(cacheName);
-  const hit = await cache.match(req);
-  if (hit) return hit;
-  const res = await fetch(req);
-  if (cacheableStrict(res)) cache.put(req, res.clone());
-  return res;
 }
 
 async function staleWhileRevalidate(req, cacheName) {
@@ -84,8 +74,10 @@ self.addEventListener("fetch", (event) => {
       return;
     }
     if (url.pathname.endsWith("/sw.js")) return;
-    if (url.searchParams.has("v")) event.respondWith(cacheFirst(req, STATIC_CACHE));
-    else event.respondWith(staleWhileRevalidate(req, STATIC_CACHE));
+    // иконки и картинки меняются редко — SWR; css/js — сначала сеть,
+    // чтобы правки прямо в main (без смены ?v) никогда не «залипали» в кэше
+    if (/\.(png|webp|jpe?g|svg|ico)$/i.test(url.pathname)) event.respondWith(staleWhileRevalidate(req, STATIC_CACHE));
+    else event.respondWith(networkFirst(req));
     return;
   }
 
