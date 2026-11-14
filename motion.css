@@ -1,0 +1,136 @@
+/* ===========================================================
+   WAW — анимации (global update).
+   Только transform/opacity, без тяжёлых библиотек.
+   prefers-reduced-motion отключает всё (см. конец файла).
+   =========================================================== */
+:root{
+  /* пружина: linear() там, где поддерживается, иначе мягкий overshoot */
+  --spring: cubic-bezier(.34,1.36,.64,1);
+  --spring-soft: cubic-bezier(.22,1.12,.36,1);
+  --ease-out: cubic-bezier(.21,.9,.35,1);
+}
+@supports (transition-timing-function: linear(0, 1)){
+  :root{
+    --spring: linear(0, .009, .035 2.1%, .141, .281 6.7%, .723 12.9%, .938 16.7%, 1.017, 1.077, 1.121, 1.149 24.3%, 1.159, 1.163, 1.161, 1.154 29.9%, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%, .991, .977 51%, .974 53.8%, .975 57.1%, .997 69.8%, 1.003 76.9%, 1);
+    --spring-soft: linear(0, .012, .047 3%, .185 6.6%, .42 11.6%, .78 19.4%, .92 23.6%, 1.02 29%, 1.05 33%, 1.06 36.7%, 1.05 41.5%, 1.01 51%, .995 60%, 1);
+  }
+}
+
+/* ---------- Сообщения: появляются только новые ---------- */
+@keyframes waw-msg-in{
+  from{ opacity:0; transform:translateY(12px) scale(.985); }
+  to{ opacity:1; transform:none; }
+}
+.msg{ animation: waw-msg-in .42s var(--spring-soft) both; }
+.msg.user{ transform-origin: 100% 100%; }
+.msg.model{ transform-origin: 0 100%; }
+.msg.msg-static{ animation:none; }
+
+/* ---------- Стриминг: мягкая каретка ---------- */
+.msg-text .stream-caret{
+  width:.55em; height:1.05em;
+  border-radius:4px;
+  animation: waw-caret 1.1s ease-in-out infinite;
+  transform-origin:50% 50%;
+}
+@keyframes waw-caret{
+  0%,100%{ opacity:.95; transform:scaleY(1); }
+  50%{ opacity:.25; transform:scaleY(.82); }
+}
+.md-stable, .md-tail{ display:contents; }
+
+/* ---------- «Думаю…» — шиммер-заглушка ---------- */
+.thinking-shimmer{
+  display:flex; flex-direction:column; gap:8px;
+  margin-top:12px; width:min(360px, 70vw);
+}
+.thinking-shimmer span{
+  position:relative; overflow:hidden;
+  height:10px; border-radius:6px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.thinking-shimmer span:nth-child(1){ width:92%; }
+.thinking-shimmer span:nth-child(2){ width:78%; }
+.thinking-shimmer span:nth-child(3){ width:54%; }
+.thinking-shimmer span::after{
+  content:""; position:absolute; inset:0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 38%, transparent), transparent);
+  transform: translateX(-100%);
+  animation: waw-shimmer 1.4s ease-in-out infinite;
+}
+.thinking-shimmer span:nth-child(2)::after{ animation-delay:.12s; }
+.thinking-shimmer span:nth-child(3)::after{ animation-delay:.24s; }
+@keyframes waw-shimmer{ to{ transform: translateX(100%); } }
+#typingRow{ animation: waw-msg-in .35s var(--ease-out) both; }
+
+/* ---------- Пружинные модалки и панели ---------- */
+@keyframes waw-fade-in{ from{ opacity:0; } to{ opacity:1; } }
+@keyframes waw-fade-out{ from{ opacity:1; } to{ opacity:0; } }
+@keyframes waw-pop-in{
+  from{ opacity:0; transform: translateY(18px) scale(.94); }
+  to{ opacity:1; transform:none; }
+}
+@keyframes waw-pop-out{
+  from{ opacity:1; transform:none; }
+  to{ opacity:0; transform: translateY(10px) scale(.97); }
+}
+.settings-scrim.open, .waw-modal-scrim.open{ animation: waw-fade-in .22s ease both; }
+.settings-scrim.open .settings-modal,
+.waw-modal-scrim.open .waw-modal{
+  animation: waw-pop-in .55s var(--spring) both;
+}
+.settings-scrim.closing, .waw-modal-scrim.closing{ animation: waw-fade-out .2s ease both; pointer-events:none; }
+.settings-scrim.closing .settings-modal,
+.waw-modal-scrim.closing .waw-modal{ animation: waw-pop-out .2s ease both; }
+
+/* секции настроек — лёгкий каскад */
+.settings-scrim.open .settings-section{ animation: waw-msg-in .5s var(--spring-soft) both; }
+.settings-scrim.open .settings-section:nth-child(2){ animation-delay:.03s; }
+.settings-scrim.open .settings-section:nth-child(3){ animation-delay:.06s; }
+.settings-scrim.open .settings-section:nth-child(4){ animation-delay:.09s; }
+.settings-scrim.open .settings-section:nth-child(n+5){ animation-delay:.12s; }
+
+.model-sheet{ transition-timing-function: var(--spring), ease; }
+@media (max-width: 840px){
+  .sidebar{ transition: transform .5s var(--spring-soft), opacity .25s ease; }
+}
+
+/* кнопки — пружинное нажатие */
+.new-chat-btn, .send-btn, .pill-toggle, .icon-btn, .model-pill, .swatch, .account-btn, .auth-submit{
+  transition-property: transform, opacity, background-color, border-color, box-shadow, color, filter;
+}
+.new-chat-btn:active, .send-btn:active, .pill-toggle:active, .icon-btn:active, .model-pill:active, .account-btn:active, .auth-submit:active{
+  transform: scale(.95);
+  transition: transform .08s ease;
+}
+.send-btn:not(:disabled):hover{ transform: translateY(-1px) scale(1.04); transition: transform .35s var(--spring); }
+
+/* список диалогов */
+.chat-item{ transition: transform .3s var(--spring-soft), background-color .2s ease, opacity .2s ease; }
+.chat-item:active{ transform: scale(.98); }
+
+/* ---------- Плавная смена диалога (View Transitions) ---------- */
+.thread{ view-transition-name: waw-thread; }
+::view-transition-old(root), ::view-transition-new(root){ animation:none; }
+::view-transition-old(waw-thread){ animation: waw-vt-out .18s ease both; }
+::view-transition-new(waw-thread){ animation: waw-vt-in .32s var(--spring-soft) both; }
+@keyframes waw-vt-out{ to{ opacity:0; transform: translateY(-6px); } }
+@keyframes waw-vt-in{ from{ opacity:0; transform: translateY(10px); } }
+/* фолбэк без View Transitions */
+.thread.waw-switching .messages{ animation: waw-fade-in .25s ease both; }
+
+/* заголовки в ответах — без лишнего веса шрифта (грузим только 500/600) */
+.msg-text h1, .msg-text h2, .msg-text h3, .msg-text h4, .msg-text strong, .msg-text b, .msg-text th{ font-weight:600; }
+
+/* ---------- Уважение к prefers-reduced-motion ---------- */
+@media (prefers-reduced-motion: reduce){
+  .msg, #typingRow, .settings-scrim.open .settings-section,
+  .settings-scrim.open, .waw-modal-scrim.open,
+  .settings-scrim.open .settings-modal, .waw-modal-scrim.open .waw-modal,
+  .settings-scrim.closing, .waw-modal-scrim.closing,
+  .settings-scrim.closing .settings-modal, .waw-modal-scrim.closing .waw-modal{ animation:none !important; }
+  .thinking-shimmer span::after{ animation:none; opacity:0; }
+  .msg-text .stream-caret{ animation:none; opacity:.7; }
+  .thread{ view-transition-name:none; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*){ animation:none !important; }
+}

@@ -8,18 +8,25 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>WAW — Wawid Studios</title>
-<link rel="icon" type="image/png" href="mainicon2.png">
-<link rel="apple-touch-icon" href="mainicon2.png">
+<link rel="icon" type="image/png" sizes="64x64" href="icons/icon-64.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
-<link rel="stylesheet" href="styles.css">
-<link rel="stylesheet" href="glass.css">
-<link rel="stylesheet" href="auth.css">
-<link rel="stylesheet" href="editor.css">
-<link rel="stylesheet" href="extras.css">
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://aynvudaskzjmvteyszvi.supabase.co" crossorigin>
+<link rel="preload" as="image" href="icons/logo-violet.webp" type="image/webp">
+<!-- шрифты не блокируют отрисовку: грузим как print и переключаем на all -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap"></noscript>
+<link rel="stylesheet" href="styles.css?v=20261114">
+<link rel="stylesheet" href="glass.css?v=20261114">
+<link rel="stylesheet" href="auth.css?v=20261114">
+<link rel="stylesheet" href="editor.css?v=20261114">
+<link rel="stylesheet" href="extras.css?v=20261114">
+<link rel="stylesheet" href="motion.css?v=20261114">
+<link rel="stylesheet" href="wawid.css?v=20261114">
 </head>
 <body>
 
@@ -28,9 +35,9 @@
 <!-- Экран входа -->
 <div class="auth-screen" id="authScreen" data-state="loading">
   <div class="auth-card">
-    <div class="auth-logo"><img src="mainicon2.png" alt="WAW"></div>
+    <div class="auth-logo"><img src="icons/logo-violet.webp" alt="WAW" width="72" height="72" decoding="async"></div>
     <h1 class="auth-title">WAW</h1>
-    <p class="auth-sub">войди, чтобы история диалогов сохранялась в облаке и была доступна на любом устройстве</p>
+    <p class="auth-sub">войди с WawID — один аккаунт Wawid Studios: история диалогов, профиль и настройки на любом устройстве</p>
 
     <div class="auth-loading">
       <div class="typing"><span></span><span></span><span></span></div>
@@ -60,7 +67,7 @@
           <input type="password" id="authPassword" autocomplete="current-password" placeholder="минимум 8 символов" maxlength="72">
         </label>
         <div class="auth-msg" id="authMsg" role="status" aria-live="polite"></div>
-        <button class="auth-submit" id="authSubmit" type="submit">Войти</button>
+        <button class="auth-submit" id="authSubmit" type="submit">Войти с WawID</button>
       </form>
     </div>
 
@@ -137,7 +144,7 @@
     <section class="thread" id="thread">
       <div class="empty-state" id="emptyState">
         <div class="empty-logo" aria-hidden="true">
-          <img id="emptyLogo" src="mainicon2.png" alt="WAW">
+          <img id="emptyLogo" src="icons/logo-violet.webp" alt="WAW" width="96" height="96" decoding="async">
         </div>
 
         <h1 id="emptyGreeting">не хочешь поговорить?</h1>
@@ -220,6 +227,49 @@
 
     <div class="settings-body">
 
+      <section class="settings-section wawid-section" id="wawidSection">
+        <h3>WawID</h3>
+        <div class="wawid-card" id="wawidCard">
+          <span class="wawid-avatar" id="wawidAvatar" aria-hidden="true">Т</span>
+          <span class="wawid-ident">
+            <span class="wawid-name" id="wawidName">Ты</span>
+            <span class="wawid-handle" id="wawidHandleLabel">@—</span>
+          </span>
+          <span class="wawid-badge" id="wawidBadge">WawID</span>
+        </div>
+        <label class="field">
+          <span class="field-label">Как к тебе обращаться</span>
+          <input type="text" id="displayNameInput" placeholder="Ты" maxlength="30">
+        </label>
+        <label class="field">
+          <span class="field-label">@handle</span>
+          <span class="field-hint">Твой уникальный WawID: 3–20 символов, латиница, цифры и «_»</span>
+          <span class="wawid-handle-row">
+            <span class="wawid-at">@</span>
+            <input type="text" id="wawidHandleInput" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="твой_ник">
+            <button class="account-btn wawid-save" id="wawidHandleSave" type="button" disabled>Сохранить</button>
+          </span>
+          <span class="wawid-status" id="wawidHandleStatus" role="status" aria-live="polite"></span>
+        </label>
+        <label class="field">
+          <span class="field-label">О себе</span>
+          <textarea id="wawidBioInput" rows="2" maxlength="300" placeholder="Пара слов о тебе для профиля WawID"></textarea>
+          <span class="field-counter"><span id="wawidBioCount">0</span>/300</span>
+        </label>
+        <div class="field">
+          <span class="field-label">Акцентный цвет</span>
+          <div class="swatch-row" id="accentSwatches">
+            <button class="swatch" data-accent="violet" style="--sw:#8B6BFF" aria-label="Фиолетовый"></button>
+            <button class="swatch" data-accent="magenta" style="--sw:#C266E0" aria-label="Пурпурный"></button>
+            <button class="swatch" data-accent="indigo" style="--sw:#6E7BFF" aria-label="Индиго"></button>
+            <button class="swatch" data-accent="pine" style="--sw:#2E9E6B" aria-label="Хвойный"></button>
+            <button class="swatch" data-accent="cosmic" style="--sw:#3D6BFF" aria-label="Космический синий"></button>
+            <button class="swatch" data-accent="rose" style="--sw:#E06691" aria-label="Розовый"></button>
+          </div>
+        </div>
+        <p class="field-hint wawid-sync" id="wawidSyncNote">Настройки хранятся на этом устройстве. Войди, чтобы синхронизировать их через WawID.</p>
+      </section>
+
       <section class="settings-section" id="accountSection">
         <h3>Аккаунт</h3>
         <div class="account-row">
@@ -232,10 +282,6 @@
 
       <section class="settings-section">
         <h3>Персонализация</h3>
-        <label class="field">
-          <span class="field-label">Как к тебе обращаться</span>
-          <input type="text" id="displayNameInput" placeholder="Ты" maxlength="30">
-        </label>
         <label class="field">
           <span class="field-label">Персональная инструкция</span>
           <span class="field-hint">Как WAW должен общаться лично с тобой. Например: «отвечай короче и без лишних вступлений».</span>
@@ -252,17 +298,6 @@
             <button type="button" data-theme="dark" role="tab">Тёмная</button>
             <button type="button" data-theme="light" role="tab">Светлая</button>
             <button type="button" data-theme="system" role="tab">Системная</button>
-          </div>
-        </div>
-        <div class="field">
-          <span class="field-label">Акцентный цвет</span>
-          <div class="swatch-row" id="accentSwatches">
-            <button class="swatch" data-accent="violet" style="--sw:#8B6BFF" aria-label="Фиолетовый"></button>
-            <button class="swatch" data-accent="magenta" style="--sw:#C266E0" aria-label="Пурпурный"></button>
-            <button class="swatch" data-accent="indigo" style="--sw:#6E7BFF" aria-label="Индиго"></button>
-            <button class="swatch" data-accent="pine" style="--sw:#2E9E6B" aria-label="Хвойный"></button>
-            <button class="swatch" data-accent="cosmic" style="--sw:#3D6BFF" aria-label="Космический синий"></button>
-            <button class="swatch" data-accent="rose" style="--sw:#E06691" aria-label="Розовый"></button>
           </div>
         </div>
       </section>
@@ -320,14 +355,16 @@
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.5/purify.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0"></script>
-<script src="cloud.js"></script>
-<script src="icons.js"></script>
-<script src="editor.js"></script>
-<script src="script.js"></script>
-<script src="extras.js"></script>
+<!-- defer: качаются параллельно, выполняются по порядку после разбора HTML.
+     highlight.js подгружается лениво — только когда в ответе появляется код. -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.5/purify.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0"></script>
+<script defer src="cloud.js?v=20261114"></script>
+<script defer src="icons.js?v=20261114"></script>
+<script defer src="editor.js?v=20261114"></script>
+<script defer src="wawid.js?v=20261114"></script>
+<script defer src="script.js?v=20261114"></script>
+<script defer src="extras.js?v=20261114"></script>
 </body>
 </html>
