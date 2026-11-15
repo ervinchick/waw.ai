@@ -92,7 +92,7 @@
       b.classList.toggle("active", b.dataset.mode === next);
     });
     tabs.dataset.active = next;
-    submitBtn.textContent = next === "signin" ? "Войти" : "Создать аккаунт";
+    submitBtn.textContent = next === "signin" ? "Войти с WawID" : "Создать WawID";
     passInput.autocomplete = next === "signin" ? "current-password" : "new-password";
     setMsg("");
   }
@@ -369,6 +369,10 @@
     };
   }
 
+  // явный список колонок вместо select("*")
+  const MESSAGE_COLUMNS =
+    "id,role,content,reasoning,image,variants,v_index,is_error,model,created_at";
+
   async function fetchAll(build, pageSize) {
     const out = [];
     for (let from = 0; ; from += pageSize) {
@@ -399,7 +403,7 @@
       () =>
         client
           .from("messages")
-          .select("*")
+          .select(MESSAGE_COLUMNS)
           .eq("conversation_id", conversationId)
           .order("created_at", { ascending: true })
           .order("id", { ascending: true }),
@@ -472,6 +476,45 @@
       })
       .eq("id", m.id);
     if (error) throw error;
+  }
+
+  /* =========================================================
+     WawID — профиль (public.profiles, RLS: только своя строка)
+     ========================================================= */
+  const PROFILE_COLUMNS =
+    "id,handle,display_name,avatar_url,accent,bio,personal_instruction,settings,created_at,updated_at";
+
+  async function getProfile() {
+    const userId = await requireUserId();
+    const { data, error } = await client
+      .from("profiles")
+      .select(PROFILE_COLUMNS)
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+    // профиль мог не создаться триггером — создаём сами
+    const ins = await client.from("profiles").insert({ id: userId }).select(PROFILE_COLUMNS).single();
+    if (ins.error) throw ins.error;
+    return ins.data;
+  }
+
+  async function updateProfile(patch) {
+    const userId = await requireUserId();
+    const { data, error } = await client
+      .from("profiles")
+      .update(patch)
+      .eq("id", userId)
+      .select(PROFILE_COLUMNS)
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  async function wawidAvailable(handle) {
+    const { data, error } = await client.rpc("wawid_available", { handle: handle });
+    if (error) throw error;
+    return data === true;
   }
 
   /* =========================================================
@@ -596,5 +639,8 @@
     upsertMessage,
     patchMessage,
     importLocalChats,
+    getProfile,
+    updateProfile,
+    wawidAvailable,
   };
 })();

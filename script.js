@@ -16,12 +16,12 @@
   const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|xml|ya?ml|toml|ini|log|html?|css|scss|jsx?|mjs|tsx?|py|java|kt|c|h|cpp|hpp|cs|go|rs|rb|php|swift|sh|bat|sql|lua|dart|vue|svelte|tex|srt)$/i;
 
   const ACCENT_ICONS = {
-    violet: "mainicon2.png",
-    magenta: "mainicon3.png",
-    indigo: "mainicon5.png",
-    pine: "mainicon.png",
-    cosmic: "mainicon6.png",
-    rose: "mainicon4.png",
+    violet: "icons/logo-violet.webp",
+    magenta: "icons/logo-magenta.webp",
+    indigo: "icons/logo-indigo.webp",
+    pine: "icons/logo-pine.webp",
+    cosmic: "icons/logo-cosmic.webp",
+    rose: "icons/logo-rose.webp",
   };
 
   const uid = () => {
@@ -116,7 +116,11 @@
   function save() {
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings)); }
     catch (e) { console.warn("WAW: failed to persist settings", e); }
+    // WawID: синхронизация настроек с профилем (если вошли)
+    if (window.WAWID && window.WAWID.onSettingsChanged) window.WAWID.onSettingsChanged(state.settings);
   }
+
+  const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function getActiveChat() {
     return state.chats.find((c) => c.id === state.activeChatId) || state.chats[0];
@@ -217,12 +221,27 @@
     wawModalConfirm.classList.toggle("danger", !o.primary);
     wawModalConfirm.classList.toggle("primary", !!o.primary);
     wawModalCancel.textContent = o.cancelLabel || "Отмена";
+    wawModalScrim.classList.remove("closing");
     wawModalScrim.classList.add("open");
     return new Promise((resolve) => { modalResolver = resolve; });
   }
 
+  // закрытие с анимацией: .closing проигрывает выход, потом снимаем .open
+  function animateClose(scrim, after) {
+    if (!scrim.classList.contains("open")) { if (after) after(); return; }
+    if (reduceMotion()) { scrim.classList.remove("open", "closing"); if (after) after(); return; }
+    scrim.classList.add("closing");
+    let done = false;
+    const finish = () => {
+      if (done) return; done = true;
+      if (scrim.classList.contains("closing")) scrim.classList.remove("open", "closing");
+      if (after) after();
+    };
+    setTimeout(finish, 210);
+  }
+
   function closeModal(result) {
-    wawModalScrim.classList.remove("open");
+    animateClose(wawModalScrim);
     if (modalResolver) { modalResolver(result); modalResolver = null; }
   }
 
@@ -242,27 +261,104 @@
     });
   }
 
+  function mdToSafeHtml(text) {
+    const parse = marked.parse || marked;
+    const html = parse(text, { breaks: true, gfm: true });
+    return DOMPurify.sanitize(html, {
+      ADD_ATTR: ["target", "data-icon"],
+      ADD_TAGS: ["i"],
+    });
+  }
+
+  // Граница «устойчивой» части стрима: последний пустой абзац вне открытого ```-блока.
+  // Всё до неё уже не изменится — парсим один раз, дальше перерисовываем только хвост.
+  function stableSplit(text) {
+    let inFence = false;
+    let cut = 0;
+    const re = /\n/g;
+    let lineStart = 0;
+    let m;
+    while ((m = re.exec(text))) {
+      const line = text.slice(lineStart, m.index);
+      if (/^\s{0,3}(```|~~~)/.test(line)) inFence = !inFence;
+      if (!inFence && line.trim() === "" && lineStart > 0) cut = lineStart;
+      lineStart = m.index + 1;
+    }
+    return cut;
+  }
+
   function renderMarkdown(el, text, withCaret) {
     const caret = withCaret ? '<span class="stream-caret"></span>' : "";
-    if (window.marked && window.DOMPurify) {
-      const parse = marked.parse || marked;
-      const html = parse(text, { breaks: true, gfm: true });
-      el.innerHTML = DOMPurify.sanitize(html, {
-        ADD_ATTR: ["target", "data-icon"],
-        ADD_TAGS: ["i"],
-      }) + caret;
-      if (window.WAW_enhanceIcons) window.WAW_enhanceIcons(el);
-    } else {
+    if (!(window.marked && window.DOMPurify)) {
       el.textContent = text + (withCaret ? "▌" : "");
+      return;
     }
+    if (!withCaret) {
+      el._md = null;
+      el.innerHTML = mdToSafeHtml(text);
+      if (window.WAW_enhanceIcons) window.WAW_enhanceIcons(el);
+      return;
+    }
+    // стриминг: инкрементальный рендер
+    let st = el._md;
+    if (!st || !el.contains(st.stableEl) || text.slice(0, st.stableLen) !== st.stableSrc) {
+      el.innerHTML = '<div class="md-stable"></div><div class="md-tail"></div>';
+      st = el._md = { stableEl: el.firstChild, tailEl: el.lastChild, stableLen: 0, stableSrc: "" };
+    }
+    const cut = stableSplit(text);
+    if (cut > st.stableLen) {
+      st.stableSrc = text.slice(0, cut);
+      st.stableLen = cut;
+      st.stableEl.innerHTML = mdToSafeHtml(st.stableSrc);
+      if (window.WAW_enhanceIcons) window.WAW_enhanceIcons(st.stableEl);
+    }
+    st.tailEl.innerHTML = mdToSafeHtml(text.slice(st.stableLen));
+    if (window.WAW_enhanceIcons) window.WAW_enhanceIcons(st.tailEl);
+    // каретка — в конце последней строки текста, а не отдельной строкой
+    let host = st.tailEl.lastElementChild || (st.stableEl.lastElementChild ? st.tailEl : st.tailEl);
+    while (host && host.lastElementChild && /^(UL|OL|LI|BLOCKQUOTE|P|H[1-6])$/.test(host.lastElementChild.tagName)) {
+      host = host.lastElementChild;
+    }
+    if (host && /^(PRE|TABLE|HR|IMG)$/.test(host.tagName)) host = st.tailEl;
+    (host || st.tailEl).insertAdjacentHTML("beforeend", caret);
+  }
+
+  // highlight.js (~120 КБ) грузим только когда в ответе впервые появился код
+  const HLJS_JS = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js";
+  const HLJS_CSS = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css";
+  let hljsPromise = null;
+  function loadHljs() {
+    if (window.hljs) return Promise.resolve(window.hljs);
+    if (hljsPromise) return hljsPromise;
+    hljsPromise = new Promise((resolve, reject) => {
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = HLJS_CSS;
+      document.head.appendChild(css);
+      const s = document.createElement("script");
+      s.src = HLJS_JS;
+      s.async = true;
+      s.onload = () => resolve(window.hljs);
+      s.onerror = () => { hljsPromise = null; reject(new Error("hljs load failed")); };
+      document.head.appendChild(s);
+    });
+    return hljsPromise;
+  }
+
+  function highlightBlocks(root) {
+    root.querySelectorAll("pre code").forEach((block) => {
+      if (block.dataset.highlighted) return;
+      try { hljs.highlightElement(block); } catch (e) {}
+    });
   }
 
   function highlightCode(root) {
-    if (!window.hljs) return;
-    root.querySelectorAll("pre code").forEach((block) => {
-      try { hljs.highlightElement(block); } catch (e) {}
-    });
+    if (!root.querySelector("pre code")) return;
     addCodeCopyButtons(root);
+    if (window.hljs) { highlightBlocks(root); return; }
+    loadHljs()
+      .then(() => { if (root.isConnected) highlightBlocks(root); })
+      .catch((e) => console.warn("WAW:", e.message));
   }
 
   function addCodeCopyButtons(root) {
@@ -387,13 +483,29 @@
     });
   }
 
+  let viewTransitionActive = false;
+  function withViewTransition(update) {
+    if (!document.startViewTransition || reduceMotion() || document.hidden) { update(); return; }
+    viewTransitionActive = true;
+    try {
+      const vt = document.startViewTransition(() => { update(); });
+      vt.finished.finally(() => { viewTransitionActive = false; });
+    } catch (e) {
+      viewTransitionActive = false;
+      update();
+    }
+  }
+
   function selectChat(chatId) {
-    state.activeChatId = chatId;
-    const chat = getActiveChat();
-    if (chat) chat.loadFailed = false;
-    rememberActiveChat();
-    save();
-    renderAllAndLoad();
+    if (chatId === state.activeChatId) { closeSidebarOnMobile(); return; }
+    withViewTransition(() => {
+      state.activeChatId = chatId;
+      const chat = getActiveChat();
+      if (chat) chat.loadFailed = false;
+      rememberActiveChat();
+      save();
+      renderAllAndLoad();
+    });
     closeSidebarOnMobile();
   }
 
@@ -449,9 +561,17 @@
   }
 
   /* ===== MESSAGE SHELL ===== */
+  // анимируем появление только новых сообщений, а не всей ленты при каждой перерисовке
+  const seenMessageIds = new Set();
+  let lastRenderedChatId = null;
+
   function buildMessageShell(m) {
     const wrap = document.createElement("div");
     wrap.className = "msg " + (m.role === "user" ? "user" : "model");
+    if (m.id) {
+      if (seenMessageIds.has(m.id)) wrap.classList.add("msg-static");
+      else seenMessageIds.add(m.id);
+    }
     if (m.role === "model") wrap.dataset.messageId = m.id || "";
 
     const body = document.createElement("div");
@@ -835,8 +955,20 @@
       note.className = "chat-loading";
       note.textContent = chat.loadFailed ? "не получилось загрузить диалог. выбери его ещё раз" : "загружаю диалог…";
       messagesEl.appendChild(note);
+      lastRenderedChatId = null;
       return;
     }
+
+    if (lastRenderedChatId !== chat.id) {
+      // смена диалога: сообщения не «въезжают» по одному, анимирует переход
+      chat.messages.forEach((m) => { if (m.id) seenMessageIds.add(m.id); });
+      if (lastRenderedChatId !== null && !viewTransitionActive && !reduceMotion()) {
+        threadEl.classList.remove("waw-switching");
+        void threadEl.offsetWidth;
+        threadEl.classList.add("waw-switching");
+      }
+    }
+    lastRenderedChatId = chat.id;
 
     if (chat.messages.length === 0) {
       emptyStateEl.style.display = "block";
@@ -866,18 +998,34 @@
     return (threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 140);
   }
 
+  // Перерисовка стрима не чаще ~25 раз/с и только в кадре анимации
   function createLivePainter(paint) {
+    const MIN_INTERVAL = 40;
     let latest = "";
     let raf = 0;
+    let timer = 0;
+    let lastPaint = 0;
+    const run = () => {
+      raf = 0;
+      lastPaint = performance.now();
+      paint(latest);
+    };
     return {
       push(raw) {
         latest = raw;
         if (!state.settings.streamingEnabled) return;
-        if (!raf) {
-          raf = requestAnimationFrame(() => { raf = 0; paint(latest); });
+        if (raf || timer) return;
+        const wait = MIN_INTERVAL - (performance.now() - lastPaint);
+        if (wait > 0) {
+          timer = setTimeout(() => { timer = 0; raf = requestAnimationFrame(run); }, wait);
+        } else {
+          raf = requestAnimationFrame(run);
         }
       },
-      stop() { if (raf) { cancelAnimationFrame(raf); raf = 0; } },
+      stop() {
+        if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        if (timer) { clearTimeout(timer); timer = 0; }
+      },
     };
   }
 
@@ -903,6 +1051,7 @@
           '<span class="thinking-text">думаю…</span>' +
           '<span class="thinking-dots"><span></span><span></span><span></span></span>' +
         '</div>' +
+        '<div class="thinking-shimmer" aria-hidden="true"><span></span><span></span><span></span></div>' +
         '<div class="thinking-actions">' +
           '<button type="button" class="stream-stop-btn" id="streamStopBtn">' +
             '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>' +
@@ -1370,12 +1519,14 @@
   /* ===== SETTINGS ===== */
   function openSettings() {
     populateSettingsForm();
+    settingsScrim.classList.remove("closing");
     settingsScrim.classList.add("open");
     settingsPanel.setAttribute("aria-hidden", "false");
+    if (window.WAWID && window.WAWID.onSettingsOpen) window.WAWID.onSettingsOpen();
   }
   function closeSettings() {
-    settingsScrim.classList.remove("open");
     settingsPanel.setAttribute("aria-hidden", "true");
+    animateClose(settingsScrim);
   }
 
   settingsBtn.addEventListener("click", openSettings);
@@ -1540,8 +1691,6 @@
     const src = ACCENT_ICONS[state.settings.accent] || ACCENT_ICONS.violet;
     const logo = document.getElementById("emptyLogo");
     if (logo && logo.getAttribute("src") !== src) logo.setAttribute("src", src);
-    const fav = document.querySelector('link[rel="icon"]');
-    if (fav && fav.getAttribute("href") !== src) fav.setAttribute("href", src);
   }
 
   function applyTheme() {
@@ -1560,9 +1709,42 @@
 
   function applyProfileToUI() {
     userDisplayName.textContent = state.settings.displayName || "Ты";
-    userAvatar.textContent = (state.settings.displayName || "Т").trim().charAt(0).toUpperCase() || "Т";
+    const initial = (state.settings.displayName || "Т").trim().charAt(0).toUpperCase() || "Т";
+    const p = window.WAWID && window.WAWID.profile ? window.WAWID.profile() : null;
+    if (p && p.avatar_url) {
+      if (!userAvatar.querySelector("img") || userAvatar.querySelector("img").getAttribute("src") !== p.avatar_url) {
+        userAvatar.textContent = "";
+        const img = document.createElement("img");
+        img.alt = "";
+        img.referrerPolicy = "no-referrer";
+        img.decoding = "async";
+        img.src = p.avatar_url;
+        img.onerror = () => { userAvatar.textContent = initial; };
+        userAvatar.appendChild(img);
+      }
+    } else {
+      userAvatar.textContent = initial;
+    }
     const sub = document.querySelector(".profile-sub");
-    if (sub) sub.textContent = cloudUser && cloudUser.email ? cloudUser.email : "настройки и персонализация";
+    if (sub) {
+      sub.textContent = p && p.handle ? "@" + p.handle
+        : cloudUser && cloudUser.email ? cloudUser.email : "настройки и персонализация";
+    }
+  }
+
+  // применить настройки, пришедшие из WawID (без повторной отправки в облако)
+  function applySettings(next) {
+    Object.assign(state.settings, next || {});
+    if (!MODELS.some((m) => m.id === state.settings.model)) state.settings.model = DEFAULT_MODEL;
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings)); } catch (e) {}
+    reasoningOn = state.settings.reasoningDefault;
+    roleplayOn = state.settings.roleplayDefault;
+    setToggle(reasoningToggle, reasoningOn);
+    setToggle(roleplayToggle, roleplayOn);
+    applyTheme();
+    applyProfileToUI();
+    renderModelUI();
+    if (settingsScrim.classList.contains("open")) populateSettingsForm();
   }
 
   newChatBtn.addEventListener("click", createChat);
@@ -1984,6 +2166,7 @@
   });
 
   function signedOutCleanup() {
+    if (window.WAWID && window.WAWID.onSignedOut) window.WAWID.onSignedOut();
     cloudUser = null;
     bootstrapId = null;
     typingChatId = null;
@@ -2020,7 +2203,11 @@
     };
 
     Cloud.showLoading("Загружаем твои диалоги…");
-    try { await loadCloudState(); }
+    // WawID-профиль параллельно с диалогами; ошибки профиля не блокируют вход
+    const wawidReady = window.WAWID && window.WAWID.onSignedIn
+      ? Promise.resolve().then(() => window.WAWID.onSignedIn(cloudUser)).catch((e) => console.warn("WAW: WawID", e))
+      : Promise.resolve();
+    try { await loadCloudState(); await wawidReady; }
     catch (e) {
       console.error("WAW: cloud bootstrap failed", e);
       cloudUser = null;
@@ -2063,5 +2250,16 @@
     getActiveChat,
     orderedChats,
     toast,
+    applySettings,
+    applyProfileToUI,
+    populateSettingsForm,
+    showConfirm,
   };
+
+  // Service worker: кэш статики (HTML — всегда сначала сеть, API не кэшируются)
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch((e) => console.warn("WAW: SW", e));
+    });
+  }
 })();
