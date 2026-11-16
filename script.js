@@ -427,8 +427,16 @@
 
   /* ===== CHAT LIST ===== */
   function renderChatList() {
-    chatListEl.innerHTML = "";
-    orderedChats().forEach((chat) => {
+    // Read pinned state once per render instead of hitting localStorage for
+    // every chat item. Build off-DOM and swap once to minimize layout work.
+    const pins = pinnedMap();
+    const chats = [...state.chats].sort(
+      (a, b) => (pins[b.id] ? 1 : 0) - (pins[a.id] ? 1 : 0)
+    );
+    const fragment = document.createDocumentFragment();
+
+    chats.forEach((chat) => {
+      const isPinned = !!pins[chat.id];
       const item = document.createElement("div");
       item.className = "chat-item" + (chat.id === state.activeChatId ? " active" : "");
       item.tabIndex = 0;
@@ -459,10 +467,10 @@
         if (ok) deleteChat(chat.id);
       });
 
-      if (pinnedMap()[chat.id]) item.classList.add("pinned");
+      if (isPinned) item.classList.add("pinned");
 
       const pin = document.createElement("button");
-      pin.className = "chat-action pin" + (pinnedMap()[chat.id] ? " on" : "");
+      pin.className = "chat-action pin" + (isPinned ? " on" : "");
       pin.setAttribute("aria-label", "Закрепить диалог");
       pin.title = "Закрепить";
       pin.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg>';
@@ -479,8 +487,10 @@
         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectChat(chat.id); }
       });
 
-      chatListEl.appendChild(item);
+      fragment.appendChild(item);
     });
+
+    chatListEl.replaceChildren(fragment);
   }
 
   let viewTransitionActive = false;
